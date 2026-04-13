@@ -50,13 +50,12 @@ async def keep_db_alive():
         try:
             async with DB.pool.acquire() as conn:
                 await conn.execute("SELECT 1")
-            print("❤️ DB alive")
 
         except Exception as e:
             print("DB reconnecting...", e)
             await init_db()
 
-        await asyncio.sleep(20)
+        await asyncio.sleep(60)  # ⬅️ tăng lên
 
 # =========================
 # MENU
@@ -192,8 +191,7 @@ async def reject(call: CallbackQuery):
 # =========================
 async def keep_alive():
     while True:
-        print("🚀 Running...")
-        await asyncio.sleep(30)
+        await asyncio.sleep(120)  
 
 # =========================
 # MAIN
