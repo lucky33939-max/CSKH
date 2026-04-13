@@ -70,7 +70,15 @@ async def start(msg: Message):
     await msg.answer("🚀 Bot Ready", reply_markup=main_menu())
 
 # =========================
-# ORDER CORE
+
+@dp.message(F.text.contains("🌐"))
+async def lang_menu(msg: Message):
+    await msg.answer("🌐 Choose language")
+
+@dp.message(F.text == "👑 Numbers")
+async def numbers_menu(msg: Message):
+    await msg.answer("📱 Choose category...")
+    
 # =========================
 async def create_order(user_id, product_type, product_id, amount):
     async with db_pool.acquire() as conn:
