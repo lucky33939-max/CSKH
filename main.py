@@ -75,9 +75,8 @@ async def keep_db_alive():
             print("💓 DB alive")
         except Exception as e:
             print("DB reconnecting...", e)
-            await init_db()
-
-        await asyncio.sleep(20)
+           await init_db()
+asyncio.create_task(keep_db_alive())
 
 # =========================
 # MENU
