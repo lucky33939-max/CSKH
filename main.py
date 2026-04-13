@@ -230,13 +230,13 @@ async def reject(call: CallbackQuery):
 
     await call.message.answer("❌ Rejected")
     await call.answer()
+await bot.delete_webhook(drop_pending_updates=True)
 
 # =========================
 # RUN
 # =========================
 async def main():
     await init_db()
-    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
