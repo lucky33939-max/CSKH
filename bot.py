@@ -1,5 +1,11 @@
+import os
+import sys
 import asyncio
 import logging
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
 from aiogram import Bot, Dispatcher
 
@@ -13,6 +19,10 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
+
+    logging.info("BASE_DIR = %s", BASE_DIR)
+    logging.info("CWD = %s", os.getcwd())
+    logging.info("FILES = %s", os.listdir(BASE_DIR))
 
     init_db()
     seed_sample_data()
