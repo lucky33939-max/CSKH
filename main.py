@@ -12,6 +12,7 @@ from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardMarkup, KeyboardButton, CallbackQuery
 )
+from db import init_db, keep_db_alive, execute, fetch, fetchrow
 import asyncpg
 
 # =========================
