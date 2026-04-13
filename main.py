@@ -75,9 +75,9 @@ async def keep_db_alive():
             print("💓 DB alive")
         except Exception as e:
             print("DB reconnecting...", e)
-           await init_db()
-asyncio.create_task(keep_db_alive())
+            await init_db()
 
+        await asyncio.sleep(20)  # 👈 BẮT BUỘC
 # =========================
 # MENU
 # =========================
@@ -223,13 +223,12 @@ async def main():
 
     await init_db()
 
-    asyncio.create_task(keep_db_alive())
+    asyncio.create_task(keep_db_alive())  # ✅ đúng chỗ
     asyncio.create_task(keep_alive())
 
     await bot.delete_webhook(drop_pending_updates=True)
 
     await dp.start_polling(bot)
-
 
 # =========================
 # RUN
