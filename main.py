@@ -202,4 +202,9 @@ async def keep_alive():
         await asyncio.sleep(30)
 
 # =========================
-# AUTO RESTAR
+
+if __name__ == "__main__":
+    print("🚀 BOT STARTING...")
+    await init_db()
+asyncio.create_task(keep_db_alive())
+    asyncio.run(main())
