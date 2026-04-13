@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer
 from db import fetch, fetchrow, execute
 from aiogram import Bot
 import os
@@ -8,28 +10,38 @@ bot = Bot(token=BOT_TOKEN)
 
 app = FastAPI()
 
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# AUTH
+security = HTTPBearer()
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "123456")
+
+def verify(token=Depends(security)):
+    if token.credentials != ADMIN_TOKEN:
+        raise HTTPException(403)
+
 # =========================
-# GET ORDERS
+# ORDERS
 # =========================
 @app.get("/orders")
-async def get_orders():
-    return await fetch("""
-        SELECT * FROM orders
-        ORDER BY created_at DESC
-    """)
+async def orders(user=Depends(verify)):
+    return await fetch("SELECT * FROM orders ORDER BY created_at DESC")
 
 # =========================
-# GET PRODUCTS
+# PRODUCTS
 # =========================
 @app.get("/products")
-async def get_products():
+async def products(user=Depends(verify)):
     return await fetch("SELECT * FROM products")
 
-# =========================
-# ADD PRODUCT
-# =========================
 @app.post("/products")
-async def add_product(type: str, value: str):
+async def add_product(type: str, value: str, user=Depends(verify)):
     await execute(
         "INSERT INTO products (type, value) VALUES ($1,$2)",
         type, value
@@ -37,10 +49,10 @@ async def add_product(type: str, value: str):
     return {"ok": True}
 
 # =========================
-# CONFIRM ORDER (🔥 CORE)
+# CONFIRM
 # =========================
 @app.post("/confirm/{order_id}")
-async def confirm(order_id: int):
+async def confirm(order_id: int, user=Depends(verify)):
     order = await fetchrow("""
         UPDATE orders
         SET status='done', delivered=TRUE
@@ -49,9 +61,8 @@ async def confirm(order_id: int):
     """, order_id)
 
     if not order:
-        return {"error": "already done"}
+        return {"error": "done"}
 
-    # lấy product đúng loại
     product = await fetchrow("""
         UPDATE products
         SET is_sold=TRUE
@@ -68,10 +79,9 @@ async def confirm(order_id: int):
         await bot.send_message(order["user_id"], "❌ Out of stock")
         return {"error": "no stock"}
 
-    # 🔥 deliver
     await bot.send_message(
         order["user_id"],
-        f"✅ Delivered ({order['product_type']}):\n{product['value']}"
+        f"✅ Delivered:\n{product['value']}"
     )
 
     return {"ok": True}
@@ -80,9 +90,6 @@ async def confirm(order_id: int):
 # REJECT
 # =========================
 @app.post("/reject/{order_id}")
-async def reject(order_id: int):
-    await execute(
-        "UPDATE orders SET status='cancel' WHERE id=$1",
-        order_id
-    )
+async def reject(order_id: int, user=Depends(verify)):
+    await execute("UPDATE orders SET status='cancel' WHERE id=$1", order_id)
     return {"ok": True}
