@@ -1,23 +1,4 @@
-# =========================
-# 🚀 FULL TELEGRAM BOT - FINAL PRODUCTION (ANTI CRASH + AUTO RECOVER)
-# =========================
-
 import asyncio
-import os
-import logging
-import random
-from dotenv import load_dotenv
-from db import init_db, keep_db_alive
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    Message, InlineKeyboardMarkup, InlineKeyboardButton,
-    ReplyKeyboardMarkup, KeyboardButton, CallbackQuery
-)
-import asyncpg
-
-# =========================
-# ENV
-# =========================
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -48,7 +29,7 @@ async def init_db():
         except Exception as e:
             print("❌ DB FAIL, retry...", e)
             await asyncio.sleep(5)
-            
+
 # =========================
 # KEEP DB ALIVE
 # =========================
@@ -62,7 +43,7 @@ async def keep_db_alive():
             print("DB reconnecting...", e)
             await init_db()
 
-        await asyncio.sleep(20)  # 👈 BẮT BUỘC
+        await asyncio.sleep(20) # 👈 BẮT BUỘC
 # =========================
 # MENU
 # =========================
