@@ -29,6 +29,7 @@ DEFAULT_PROMOS = {
 async def init_db():
     global db_pool
     db_pool = await asyncpg.create_pool(DATABASE_URL)
+    print("DB connected")
 
     async with db_pool.acquire() as conn:
         await conn.execute("""
@@ -43,6 +44,7 @@ async def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         """)
+        print("users table ready")
 
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS categories (
