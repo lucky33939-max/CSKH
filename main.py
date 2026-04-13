@@ -1,7 +1,6 @@
 import asyncio
 import os
 import logging
-import random
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -11,7 +10,7 @@ from aiogram.types import (
 import asyncpg
 
 # =========================
-# LOAD ENV
+# CONFIG
 # =========================
 load_dotenv()
 
@@ -25,7 +24,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # =========================
-# DB (NO GLOBAL)
+# DB
 # =========================
 class DB:
     pool = None
@@ -33,16 +32,11 @@ class DB:
 async def init_db():
     while True:
         try:
-            DB.pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=1,
-                max_size=5,
-                max_inactive_connection_lifetime=30
-            )
-            print("✅ DB Connected")
+            DB.pool = await asyncpg.create_pool(DATABASE_URL)
+            logging.info("DB connected")
             break
         except Exception as e:
-            print("❌ DB FAIL:", e)
+            logging.error(f"DB error: {e}")
             await asyncio.sleep(5)
 
 async def keep_db_alive():
@@ -50,12 +44,32 @@ async def keep_db_alive():
         try:
             async with DB.pool.acquire() as conn:
                 await conn.execute("SELECT 1")
-
-        except Exception as e:
-            print("DB reconnecting...", e)
+        except Exception:
             await init_db()
+        await asyncio.sleep(60)
 
-        await asyncio.sleep(60)  # ⬅️ tăng lên
+# =========================
+# UTIL
+# =========================
+async def get_stock():
+    async with DB.pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM products WHERE is_sold=FALSE"
+        )
+
+async def get_product():
+    async with DB.pool.acquire() as conn:
+        return await conn.fetchrow("""
+            UPDATE products
+            SET is_sold=TRUE
+            WHERE id = (
+                SELECT id FROM products
+                WHERE is_sold=FALSE
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING *
+        """)
 
 # =========================
 # MENU
@@ -63,11 +77,16 @@ async def keep_db_alive():
 def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="👑 Numbers")],
-            [KeyboardButton(text="🔥📦 Rent 888 (HOT)")],
-            [KeyboardButton(text="⭐ Stars"), KeyboardButton(text="💎 Premium")],
-            [KeyboardButton(text="🎁 Gifts")],
-            [KeyboardButton(text="🌐 Language")]
+            [KeyboardButton(text="🔥 Rent Number")],
+        ],
+        resize_keyboard=True
+    )
+
+def admin_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📦 Add Product")],
+            [KeyboardButton(text="📊 Stock")]
         ],
         resize_keyboard=True
     )
@@ -80,63 +99,24 @@ async def start(msg: Message):
     await msg.answer("🚀 Bot Ready", reply_markup=main_menu())
 
 # =========================
-# ORDER
+# USER FLOW
 # =========================
-async def create_order(user_id, product, item, amount):
-    async with DB.pool.acquire() as conn:
-        order = await conn.fetchrow("""
-            INSERT INTO orders (user_id, product_type, product_id, amount)
-            VALUES ($1,$2,$3,$4)
-            RETURNING *
-        """, user_id, product, item, amount)
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🟢 Confirm", callback_data=f"admin_confirm:{order['id']}"),
-            InlineKeyboardButton(text="🔴 Reject", callback_data=f"admin_reject:{order['id']}")
-        ]
-    ])
-
-    await bot.send_message(ADMIN_ID, f"🆕 ORDER #{order['id']}\n{item}\n{amount}U", reply_markup=kb)
-    await bot.send_message(user_id, f"🧾 Order #{order['id']} created")
-
-# =========================
-# RENT 888
-# =========================
-RENT_NUMBERS = [
-    "+888 0469 5721",
-    "+888 0743 9525",
-    "+888 0854 6327"
-]
-
-@dp.message(F.text == "🔥📦 Rent 888 (HOT)")
+@dp.message(F.text == "🔥 Rent Number")
 async def rent(msg: Message):
-    stock = random.randint(1, 5)
-    await msg.answer(f"🔥 HOT\nStock: {stock}")
+    stock = await get_stock()
+
+    if stock == 0:
+        await msg.answer("❌ Out of stock")
+        return
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=n, callback_data=f"rent:{n}")]
-        for n in RENT_NUMBERS
+        [InlineKeyboardButton(text="Buy - 99U", callback_data="buy:rent:99")]
     ])
 
-    await msg.answer("Select number", reply_markup=kb)
-
-@dp.callback_query(F.data.startswith("rent:"))
-async def rent_select(call: CallbackQuery):
-    phone = call.data.split(":")[1]
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="1M 99U", callback_data=f"buy:{phone}:99"),
-            InlineKeyboardButton(text="3M 268U", callback_data=f"buy:{phone}:268")
-        ]
-    ])
-
-    await call.message.answer(phone, reply_markup=kb)
-    await call.answer()
+    await msg.answer(f"🔥 Stock: {stock}", reply_markup=kb)
 
 # =========================
-# BUY
+# ORDER
 # =========================
 user_lock = {}
 
@@ -151,15 +131,82 @@ async def buy(call: CallbackQuery):
     user_lock[uid] = True
 
     try:
-        _, phone, price = call.data.split(":")
-        await create_order(uid, "rent", phone, int(price))
+        _, product, price = call.data.split(":")
+
+        async with DB.pool.acquire() as conn:
+            order = await conn.fetchrow("""
+                INSERT INTO orders (user_id, product_type, amount)
+                VALUES ($1,$2,$3)
+                RETURNING *
+            """, uid, product, int(price))
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🟢 Confirm", callback_data=f"admin_confirm:{order['id']}"),
+                InlineKeyboardButton(text="🔴 Reject", callback_data=f"admin_reject:{order['id']}")
+            ]
+        ])
+
+        await bot.send_message(ADMIN_ID, f"🆕 Order #{order['id']}", reply_markup=kb)
+        await call.message.answer("🧾 Order created")
+
     finally:
         user_lock[uid] = False
 
     await call.answer()
 
 # =========================
-# ADMIN
+# ADMIN PANEL
+# =========================
+admin_state = {}
+
+@dp.message(F.text == "/admin")
+async def admin(msg: Message):
+    if msg.from_user.id == ADMIN_ID:
+        await msg.answer("⚙️ Admin Panel", reply_markup=admin_menu())
+
+@dp.message(F.text == "📦 Add Product")
+async def add_product(msg: Message):
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    admin_state[msg.from_user.id] = True
+    await msg.answer("Send numbers (each line = 1)")
+
+@dp.message()
+async def admin_input(msg: Message):
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    if not admin_state.get(msg.from_user.id):
+        return
+
+    lines = msg.text.split("\n")
+
+    async with DB.pool.acquire() as conn:
+        for line in lines:
+            if line.strip():
+                await conn.execute(
+                    "INSERT INTO products (type, value) VALUES ('rent', $1)",
+                    line.strip()
+                )
+
+    admin_state[msg.from_user.id] = False
+    await msg.answer(f"✅ Added {len(lines)} items")
+
+@dp.message(F.text == "📊 Stock")
+async def stock(msg: Message):
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    async with DB.pool.acquire() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM products")
+        available = await conn.fetchval("SELECT COUNT(*) FROM products WHERE is_sold=FALSE")
+
+    await msg.answer(f"📦 Total: {total}\n✅ Available: {available}")
+
+# =========================
+# ADMIN ACTIONS
 # =========================
 @dp.callback_query(F.data.startswith("admin_confirm:"))
 async def confirm(call: CallbackQuery):
@@ -167,15 +214,24 @@ async def confirm(call: CallbackQuery):
 
     async with DB.pool.acquire() as conn:
         order = await conn.fetchrow("""
-            UPDATE orders SET status='done', delivered=TRUE
+            UPDATE orders
+            SET status='done', delivered=TRUE
             WHERE id=$1 AND delivered=FALSE
             RETURNING *
         """, oid)
 
-    if order:
-        await bot.send_message(order["user_id"], f"✅ Delivered {order['product_id']}")
+    if not order:
+        await call.answer("Already done")
+        return
 
-    await call.answer("Done")
+    product = await get_product()
+
+    if not product:
+        await bot.send_message(order["user_id"], "❌ Out of stock")
+        return
+
+    await bot.send_message(order["user_id"], f"✅ Delivered:\n{product['value']}")
+    await call.answer("Delivered")
 
 @dp.callback_query(F.data.startswith("admin_reject:"))
 async def reject(call: CallbackQuery):
@@ -187,29 +243,22 @@ async def reject(call: CallbackQuery):
     await call.answer("Rejected")
 
 # =========================
-# KEEP BOT ALIVE
+# FALLBACK (FIX NOT HANDLED)
 # =========================
-async def keep_alive():
-    while True:
-        await asyncio.sleep(120)  
+@dp.message()
+async def fallback(msg: Message):
+    await msg.answer("❌ Unknown command")
 
 # =========================
 # MAIN
 # =========================
 async def main():
-    print("🚀 BOT STARTING...")
-
     await init_db()
 
     asyncio.create_task(keep_db_alive())
-    asyncio.create_task(keep_alive())
 
     await bot.delete_webhook(drop_pending_updates=True)
-
     await dp.start_polling(bot)
 
-# =========================
-# RUN
-# =========================
 if __name__ == "__main__":
     asyncio.run(main())
