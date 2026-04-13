@@ -58,8 +58,6 @@ PAYMENT_TEXT = os.getenv(
 
 if not BOT_TOKEN:
     raise ValueError("Missing BOT_TOKEN")
-if not DATABASE_URL:
-    raise ValueError("Missing DATABASE_URL")
 
 SUPPORT_LINK = f"https://t.me/{SUPPORT_USERNAME.lstrip('@')}"
 
