@@ -1,25 +1,32 @@
 import time
 from contextlib import contextmanager
-
-import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
-
 from config import DATABASE_URL
 
-
-_pool = ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
+_pool = None
 
 
 def now_ts():
     return int(time.time())
 
 
+def get_pool():
+    global _pool
+    if _pool is None:
+        _pool = ThreadedConnectionPool(
+            1,
+            10,
+            dsn=DATABASE_URL
+        )
+    return _pool
+
+
 def get_conn():
-    return _pool.getconn()
+    return get_pool().getconn()
 
 
 def put_conn(conn):
-    _pool.putconn(conn)
+    get_pool().putconn(conn)
 
 
 @contextmanager
