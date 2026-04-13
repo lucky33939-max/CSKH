@@ -57,11 +57,11 @@ def main_menu():
             [KeyboardButton(text="👑 Numbers")],
             [KeyboardButton(text="🔥📦 Rent 888 (HOT)")],
             [KeyboardButton(text="⭐ Stars"), KeyboardButton(text="💎 Premium")],
-            [KeyboardButton(text="🎁 Gifts")]
+            [KeyboardButton(text="🎁 Gifts")],
+            [KeyboardButton(text="🌐 Language")]  # 👈 thêm lại
         ],
         resize_keyboard=True
     )
-
 # =========================
 # START
 # =========================
@@ -113,7 +113,7 @@ RENT_NUMBERS = [
     "+888 0854 6327",
 ]
 
-@dp.message(F.text.contains("888"))
+@dp.message(F.text == "🔥📦 Rent 888 (HOT)")
 async def rent_menu(msg: Message):
     stock = random.randint(1,5)
     await msg.answer(f"""
