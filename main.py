@@ -45,12 +45,13 @@ async def init_db():
 # =========================
 # KEEP DB ALIVE
 # =========================
-async def keep_db_alive():
+aasync def keep_db_alive():
     while True:
         try:
-            async with db_pool.acquire() as conn:
+            async with DB.pool.acquire() as conn:
                 await conn.execute("SELECT 1")
-            print("💓 DB alive")
+            print("❤️ DB alive")
+
         except Exception as e:
             print("DB reconnecting...", e)
             await init_db()
