@@ -9,6 +9,10 @@ from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton, CallbackQuery
 )
 import asyncpg
+
+# =========================
+# LOAD ENV
+# =========================
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -19,10 +23,9 @@ logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-db_pool = None
 
 # =========================
-# DB
+# DB (NO GLOBAL)
 # =========================
 class DB:
     pool = None
@@ -42,9 +45,6 @@ async def init_db():
             print("❌ DB FAIL:", e)
             await asyncio.sleep(5)
 
-# =========================
-# KEEP DB ALIVE
-# =========================
 async def keep_db_alive():
     while True:
         try:
@@ -57,6 +57,7 @@ async def keep_db_alive():
             await init_db()
 
         await asyncio.sleep(20)
+
 # =========================
 # MENU
 # =========================
@@ -83,7 +84,7 @@ async def start(msg: Message):
 # ORDER
 # =========================
 async def create_order(user_id, product, item, amount):
-    async with db_pool.acquire() as conn:
+    async with DB.pool.acquire() as conn:
         order = await conn.fetchrow("""
             INSERT INTO orders (user_id, product_type, product_id, amount)
             VALUES ($1,$2,$3,$4)
@@ -111,7 +112,7 @@ RENT_NUMBERS = [
 
 @dp.message(F.text == "🔥📦 Rent 888 (HOT)")
 async def rent(msg: Message):
-    stock = random.randint(1,5)
+    stock = random.randint(1, 5)
     await msg.answer(f"🔥 HOT\nStock: {stock}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -165,7 +166,7 @@ async def buy(call: CallbackQuery):
 async def confirm(call: CallbackQuery):
     oid = int(call.data.split(":")[1])
 
-    async with db_pool.acquire() as conn:
+    async with DB.pool.acquire() as conn:
         order = await conn.fetchrow("""
             UPDATE orders SET status='done', delivered=TRUE
             WHERE id=$1 AND delivered=FALSE
@@ -181,7 +182,7 @@ async def confirm(call: CallbackQuery):
 async def reject(call: CallbackQuery):
     oid = int(call.data.split(":")[1])
 
-    async with db_pool.acquire() as conn:
+    async with DB.pool.acquire() as conn:
         await conn.execute("UPDATE orders SET status='cancel' WHERE id=$1", oid)
 
     await call.answer("Rejected")
@@ -193,7 +194,7 @@ async def keep_alive():
     while True:
         print("🚀 Running...")
         await asyncio.sleep(30)
-        
+
 # =========================
 # MAIN
 # =========================
@@ -202,7 +203,7 @@ async def main():
 
     await init_db()
 
-    asyncio.create_task(keep_db_alive())  # ✅ đúng chỗ
+    asyncio.create_task(keep_db_alive())
     asyncio.create_task(keep_alive())
 
     await bot.delete_webhook(drop_pending_updates=True)
