@@ -1,7 +1,7 @@
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+TOKEN = os.getenv("TOKEN")
+NOWPAY_API_KEY = os.getenv("NOWPAY_API_KEY")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
