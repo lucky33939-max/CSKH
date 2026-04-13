@@ -58,7 +58,7 @@ def main_menu():
             [KeyboardButton(text="🔥📦 Rent 888 (HOT)")],
             [KeyboardButton(text="⭐ Stars"), KeyboardButton(text="💎 Premium")],
             [KeyboardButton(text="🎁 Gifts")],
-            [KeyboardButton(text="🌐 Language")]  # 👈 thêm lại
+            [KeyboardButton(text="🌐 Language")]
         ],
         resize_keyboard=True
     )
@@ -75,10 +75,31 @@ async def start(msg: Message):
 async def lang_menu(msg: Message):
     await msg.answer("🌐 Choose language")
 
-@dp.message(F.text == "👑 Numbers")
+@dp.message(F.text == "🔥📦 Numbers")
 async def numbers_menu(msg: Message):
-    await msg.answer("📱 Choose category...")
+    await msg.answer("📱 SIM MENU\n\nChọn loại số:")
     
+    @dp.message(F.text == "👑 Rent 888 (HOT)")
+async def rent_menu(msg: Message):
+    await msg.answer("👑 888 RENT MENU")
+
+@dp.message(F.text == "⭐ Stars")
+async def stars_menu(msg: Message):
+    await msg.answer("⭐ Stars Menu")
+
+@dp.message(F.text == "💎 Premium")
+async def premium_menu(msg: Message):
+    await msg.answer("💎 Premium Menu")
+
+@dp.message(F.text == "🎁 Gifts")
+async def gift_menu(msg: Message):
+    await msg.answer("🎁 Gift Menu")
+
+@dp.message(F.text == "🌐 Language")
+async def language_menu(msg: Message):
+    await msg.answer("🌐 Choose Language:\n🇻🇳 Vietnamese\n🇬🇧 English\n🇨🇳 中文")
+
+
 # =========================
 async def create_order(user_id, product_type, product_id, amount):
     async with db_pool.acquire() as conn:
@@ -121,7 +142,7 @@ RENT_NUMBERS = [
     "+888 0854 6327",
 ]
 
-@dp.message(F.text == "🔥📦 Rent 888 (HOT)")
+@dp.message(F.text == "👑  Rent 888 (HOT)")
 async def rent_menu(msg: Message):
     stock = random.randint(1,5)
     await msg.answer(f"""
@@ -135,7 +156,7 @@ async def rent_menu(msg: Message):
 """)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🔥 {n}", callback_data=f"rent:{i}")]
+        [InlineKeyboardButton(text=f"👑  {n}", callback_data=f"rent:{i}")]
         for i,n in enumerate(RENT_NUMBERS)
     ])
 
