@@ -207,22 +207,23 @@ async def close_db():
         db_pool = None
 
 
-async def get_or_create_user_from_tg(tg_user):
+async def get_or_create_user_from_tg(tg_user, tenant_id="default"):
     async with db_pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, language)
-            VALUES ($1, $2, $3, 'zh')
-            ON CONFLICT (telegram_id)
-            DO UPDATE SET
-                username = EXCLUDED.username,
-                full_name = EXCLUDED.full_name
-        """, tg_user.id, tg_user.username, tg_user.full_name)
-
-        return await conn.fetchrow(
-            "SELECT * FROM users WHERE telegram_id = $1",
-            tg_user.id
+        user = await conn.fetchrow(
+            "SELECT * FROM users WHERE telegram_id = $1 AND tenant_id = $2",
+            tg_user.id, tenant_id
         )
 
+        if not user:
+            await conn.execute("""
+                INSERT INTO users (telegram_id, username, full_name, language, tenant_id)
+                VALUES ($1, $2, $3, 'zh', $4)
+            """, tg_user.id, tg_user.username, tg_user.full_name, tenant_id)
+
+        return await conn.fetchrow(
+            "SELECT * FROM users WHERE telegram_id = $1 AND tenant_id = $2",
+            tg_user.id, tenant_id
+        )
 
 async def get_user(tg_id: int):
     async with db_pool.acquire() as conn:
