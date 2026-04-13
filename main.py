@@ -1,18 +1,11 @@
 # =========================
-# 🚀 FULL TELEGRAM BOT (PRODUCTION READY)
-# Features:
-# - Menu fixed
-# - Order system
-# - Admin confirm
-# - Anti spam
-# - USDT mock auto detect
+# 🚀 FULL TELEGRAM BOT - FINAL PRODUCTION (ANTI CRASH + AUTO RECOVER)
 # =========================
 
 import asyncio
 import os
 import logging
 import random
-import uuid
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -36,26 +29,39 @@ dp = Dispatcher()
 db_pool = None
 
 # =========================
-# DB
+# DB AUTO RECONNECT
 # =========================
 async def init_db():
     global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-        CREATE TABLE IF NOT EXISTS orders (
-            id SERIAL PRIMARY KEY,
-            user_id BIGINT,
-            product_type TEXT,
-            product_id TEXT,
-            amount NUMERIC,
-            status TEXT DEFAULT 'pending',
-            delivered BOOLEAN DEFAULT FALSE,
-            tx_hash TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        """)
+    while True:
+        try:
+            db_pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=1,
+                max_size=5,
+                max_inactive_connection_lifetime=30
+            )
+            print("✅ DB Connected")
+            break
+        except Exception as e:
+            print("❌ DB FAIL, retry...", e)
+            await asyncio.sleep(5)
+
+# =========================
+# KEEP DB ALIVE
+# =========================
+async def keep_db_alive():
+    while True:
+        try:
+            async with db_pool.acquire() as conn:
+                await conn.execute("SELECT 1")
+            print("💓 DB alive")
+        except Exception as e:
+            print("DB reconnecting...", e)
+            await init_db()
+
+        await asyncio.sleep(20)
 
 # =========================
 # MENU
@@ -80,15 +86,15 @@ async def start(msg: Message):
     await msg.answer("🚀 Bot Ready", reply_markup=main_menu())
 
 # =========================
-# ORDER CORE
+# ORDER
 # =========================
-async def create_order(user_id, product_type, product_id, amount):
+async def create_order(user_id, product, item, amount):
     async with db_pool.acquire() as conn:
         order = await conn.fetchrow("""
             INSERT INTO orders (user_id, product_type, product_id, amount)
             VALUES ($1,$2,$3,$4)
             RETURNING *
-        """, user_id, product_type, product_id, amount)
+        """, user_id, product, item, amount)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -97,14 +103,8 @@ async def create_order(user_id, product_type, product_id, amount):
         ]
     ])
 
-    await bot.send_message(
-        ADMIN_ID,
-        f"🆕 ORDER #{order['id']}\n{product_type}\n{product_id}\n{amount}U",
-        reply_markup=kb
-    )
-
-    await bot.send_message(user_id, f"🧾 Order #{order['id']} created\n⏳ Waiting admin")
-    return order
+    await bot.send_message(ADMIN_ID, f"🆕 ORDER #{order['id']}\n{item}\n{amount}U", reply_markup=kb)
+    await bot.send_message(user_id, f"🧾 Order #{order['id']} created")
 
 # =========================
 # RENT 888
@@ -116,16 +116,16 @@ RENT_NUMBERS = [
 ]
 
 @dp.message(F.text == "🔥📦 Rent 888 (HOT)")
-async def rent_menu(msg: Message):
+async def rent(msg: Message):
     stock = random.randint(1,5)
-    await msg.answer(f"🔥 HOT\n⏳ Stock: {stock}")
+    await msg.answer(f"🔥 HOT\nStock: {stock}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🔥 {n}", callback_data=f"rent:{n}")]
+        [InlineKeyboardButton(text=n, callback_data=f"rent:{n}")]
         for n in RENT_NUMBERS
     ])
 
-    await msg.answer("👇 Select number", reply_markup=kb)
+    await msg.answer("Select number", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("rent:"))
 async def rent_select(call: CallbackQuery):
@@ -138,7 +138,7 @@ async def rent_select(call: CallbackQuery):
         ]
     ])
 
-    await call.message.answer(f"📱 {phone}", reply_markup=kb)
+    await call.message.answer(phone, reply_markup=kb)
     await call.answer()
 
 # =========================
@@ -151,7 +151,7 @@ async def buy(call: CallbackQuery):
     uid = call.from_user.id
 
     if user_lock.get(uid):
-        await call.answer("⏳ Wait...", show_alert=True)
+        await call.answer("Wait...", show_alert=True)
         return
 
     user_lock[uid] = True
@@ -178,11 +178,9 @@ async def confirm(call: CallbackQuery):
             RETURNING *
         """, oid)
 
-    if not order:
-        await call.answer("Already processed", show_alert=True)
-        return
+    if order:
+        await bot.send_message(order["user_id"], f"✅ Delivered {order['product_id']}")
 
-    await bot.send_message(order["user_id"], f"✅ Delivered {order['product_id']}")
     await call.answer("Done")
 
 @dp.callback_query(F.data.startswith("admin_reject:"))
@@ -195,32 +193,12 @@ async def reject(call: CallbackQuery):
     await call.answer("Rejected")
 
 # =========================
-# MOCK AUTO PAYMENT
+# KEEP BOT ALIVE
 # =========================
-async def fake_payment_checker():
+async def keep_alive():
     while True:
-        async with db_pool.acquire() as conn:
-            orders = await conn.fetch("SELECT * FROM orders WHERE status='pending'")
-
-        for o in orders:
-            if random.random() < 0.1:  # fake paid
-                async with db_pool.acquire() as conn:
-                    await conn.execute("UPDATE orders SET status='done', delivered=TRUE WHERE id=$1", o["id"])
-
-                await bot.send_message(o["user_id"], "💰 Auto paid & delivered")
-
-        await asyncio.sleep(10)
+        print("🚀 Running...")
+        await asyncio.sleep(30)
 
 # =========================
-# RUN
-# =========================
-async def main():
-    await init_db()
-    await bot.delete_webhook(drop_pending_updates=True)
-
-    asyncio.create_task(fake_payment_checker())
-
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# AUTO RESTAR
