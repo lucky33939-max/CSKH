@@ -969,17 +969,11 @@ async def menu_invoices(message: Message):
     await send_invoices_list(message, lang, message.from_user.id)
 
 
-@dp.callback_query(F.data == "menu"))
-async def cb_menu(call: CallbackQuery):
-    lang = await get_user_lang(call.from_user.id)
-    await call.message.answer(t(lang, "choose_action"), reply_markup=main_menu(lang))
-    await call.answer()
 @dp.callback_query(F.data == "menu")
 async def cb_menu(call: CallbackQuery):
     lang = await get_user_lang(call.from_user.id)
     await call.message.answer(t(lang, "choose_action"), reply_markup=main_menu(lang))
     await call.answer()
-
 
 @dp.callback_query(F.data == "open_topup")
 async def cb_open_topup(call: CallbackQuery):
