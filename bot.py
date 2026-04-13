@@ -45,7 +45,6 @@ from db import (
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "@ZZB339")
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/ZXZ368")
