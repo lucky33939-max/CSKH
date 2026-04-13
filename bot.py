@@ -14,9 +14,13 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 
 from db import (
     init_db,
+    close_db,
     get_or_create_user_from_tg,
     get_user,
     get_user_lang,
@@ -24,7 +28,6 @@ from db import (
     get_promo_text,
     list_categories,
     get_category,
-    list_featured_services,
     list_services_by_category,
     get_service,
     create_order,
@@ -40,12 +43,17 @@ from db import (
     set_balance,
     set_promo_text,
     list_services_admin,
+    list_inventory_by_category,
+    get_inventory_item,
+    create_topup_request,
+    confirm_topup_request,
+    create_purchase_request,
+    confirm_purchase_request,
 )
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "@ZZB339")
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/ZXZ368")
@@ -58,73 +66,70 @@ PAYMENT_TEXT = os.getenv(
 
 if not BOT_TOKEN:
     raise ValueError("Missing BOT_TOKEN")
-if not DATABASE_URL:
-    raise ValueError("Missing DATABASE_URL")
 
 SUPPORT_LINK = f"https://t.me/{SUPPORT_USERNAME.lstrip('@')}"
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
 
-# =========================
-# TRANSLATIONS (EN + ZH)
-# =========================
+class AmountFSM(StatesGroup):
+    waiting_custom_topup = State()
+    waiting_custom_purchase = State()
+
 
 TRANSLATIONS = {
     "en": {
         "welcome": (
-            f"🔥 Welcome to {SHOP_NAME}\n\n"
-            "✅ Professional Telegram services\n"
-            "✅ Fast handling and reliable support\n"
-            "✅ Premium service packages for individuals and communities\n\n"
-            "🎁 Today’s promotions are live\n"
-            "👇 Please choose an option below to begin\n\n"
+            f"♛ Welcome to {SHOP_NAME}\n\n"
+            "✨ Premium Telegram concierge services\n"
+            "✨ Featured now: Private Numbers & VIP Bots\n"
+            "✨ Also available: Stars, Premium, Gifts, Advertising and Custom Services\n\n"
+            "👇 Please choose a premium category below\n\n"
             f"🆘 Support: {SUPPORT_USERNAME}\n"
             f"📢 Channel: @ZXZ368"
         ),
         "choose_action": "Choose an option below:",
-        "btn_hot": "🔥 Hot Services",
-        "btn_catalog": "🛍 Catalog",
-        "btn_promo": "💎 Promotions",
+        "btn_language": "🌍 Language",
+        "btn_ads": "📢 Advertising",
+        "btn_cart_menu": "🛒 Cart",
         "btn_topup": "💳 Top Up",
+        "btn_catalog": "🛍 All Services",
+        "btn_support": "🆘 Support",
+
+        "btn_anon": "👑 Private Numbers",
+        "btn_vip_bot": "🤖 VIP Bots",
+        "btn_stars": "⭐ Stars",
+        "btn_premium": "⭐ Premium",
+        "btn_gifts": "🎁 Gifts",
+        "btn_back": "⬅️ Back",
+
+        "btn_channel": "📢 Channel",
+        "btn_fast_broadcast": "⚡ Fast Broadcast",
         "btn_balance": "💰 Balance",
         "btn_orders": "📦 Orders",
         "btn_invoice": "🧾 Invoices",
-        "btn_language": "🌍 Language",
-        "btn_support": "🆘 Support",
-        "btn_channel": "📢 Channel",
-        "btn_center": "👤 My Center",
 
         "language_title": "🌍 Please choose your language:",
         "language_updated_en": "✅ Language changed to English.",
         "language_updated_zh": "✅ 语言已切换为中文。",
 
-        "back": "⬅️ Back",
+        "menu_cart_title": "🛒 Cart Menu\n\nChoose a premium category:",
+        "menu_services_title": "🛍 All Services\n\nChoose a function below:",
+
+        "anon_title": "👑 Private Numbers Collection\n\nChoose a number below:",
+        "vip_bot_title": "🤖 VIP Bot Suites\n\nChoose a service below:",
+        "stars_title": "⭐ Stars Services\n\nChoose a service below:",
+        "premium_title": "⭐ Premium Services\n\nChoose a service below:",
+        "gifts_title": "🎁 Gift Services\n\nChoose a service below:",
+        "ads_title": "📢 Advertising Services\n\nChoose a service below:",
+        "broadcast_title": "⚡ Fast Broadcast Services\n\nChoose a service below:",
+
         "back_menu": "🏠 Main Menu",
         "buy_now": "🛒 Buy Now",
         "contact_support": "🆘 Contact Support",
         "open_channel": "📢 Open Channel",
-        "topup_now": "💳 Top Up Now",
         "view_invoice": "🧾 View Invoice",
-
-        "hot_title": "🔥 Featured services\n\nChoose a package below:",
-        "catalog_title": "🛍 Service categories\n\nPlease choose a category:",
-        "services_title": "📂 {category}\n\nChoose a service to view:",
-        "service_detail": (
-            "✨ {title}\n"
-            "🏷 {badge}\n"
-            "💵 Price: {price:.2f} USDT\n\n"
-            "{description}\n\n"
-            "📌 After payment, admin will process your order and contact you."
-        ),
-
-        "promo_title": "💎 Today's promotions\n\n{promo}",
-        "default_promo": (
-            "🎁 Top up 100 USDT: get 5% bonus\n"
-            "🎁 Top up 300 USDT: get 10% bonus\n"
-            "🎁 Selected service packages are on limited discount"
-        ),
 
         "balance_text": "💰 Current balance: {balance:.2f} USDT",
         "balance_not_enough": "Insufficient balance. Please top up to continue.",
@@ -156,35 +161,74 @@ TRANSLATIONS = {
             "Support: {support}"
         ),
 
-        "center_text": (
-            "🌞 Hello, {name}\n\n"
-            "🆔 User ID: {user_id}\n"
-            "📅 Registered: {created_at}\n"
-            "💰 Balance: {balance:.2f} USDT\n"
-            "💸 Total spent: {spent:.2f} USDT\n"
-            "📦 Total orders: {orders}\n\n"
-            "Please choose an option below."
-        ),
-
         "support_text": (
             "🆘 Customer Support\n\n"
             f"• Support: {SUPPORT_USERNAME}\n"
             f"• Channel: {CHANNEL_URL}\n\n"
             "If you need service consultation or payment confirmation, please contact support."
         ),
-
         "channel_text": "📢 Official channel of the shop:",
-        "topup_title": "💳 Top Up\n\nChoose an amount below or contact support after payment.",
+        "topup_title": "💳 Top Up\n\nChoose an amount below.",
         "topup_info": (
             "💳 Top up {amount} USDT\n\n"
             "{payment_text}\n\n"
             f"🆘 Support: {SUPPORT_USERNAME}\n"
-            "📌 Send your Telegram ID: {user_id}"
+            "📌 Telegram ID: {user_id}"
+        ),
+
+        "center_text": (
+            "🌞 Hello, {name}\n\n"
+            "🆔 User ID: {user_id}\n"
+            "📅 Registered: {created_at}\n"
+            "💰 Balance: {balance:.2f} USDT\n"
+            "💸 Total spent: {spent:.2f} USDT\n"
+            "📦 Total orders: {orders}\n"
         ),
 
         "no_categories": "No categories yet.",
-        "no_services": "No services in this category yet.",
+        "no_services": "No services available.",
+        "no_stock": "No stock available.",
         "service_not_found": "Service not found.",
+        "item_not_found": "Item not found.",
+        "choose_amount": "Please choose an amount:",
+        "custom_amount_prompt_topup": "Please enter your custom top up amount (USDT).",
+        "custom_amount_prompt_purchase": "Please enter your custom payment amount (USDT).",
+        "invalid_amount": "Invalid amount. Please enter a number greater than 0.",
+        "stock_empty": "Out of stock.",
+        "topup_created": (
+            "🧾 TOP UP INVOICE\n\n"
+            "Invoice ID: #{invoice_id}\n"
+            "Amount: {amount:.2f} USDT\n\n"
+            "{payment_text}\n\n"
+            "After payment, admin will confirm for you."
+        ),
+        "purchase_created": (
+            "🧾 PURCHASE INVOICE\n\n"
+            "Invoice ID: #{invoice_id}\n"
+            "Item: {item}\n"
+            "Amount: {amount:.2f} USDT\n\n"
+            "{payment_text}\n\n"
+            "After payment, admin will confirm and deliver your item."
+        ),
+        "topup_confirmed": "✅ Your top up has been confirmed.\n+{amount:.2f} USDT added to your balance.",
+        "purchase_confirmed": "✅ Your purchase has been confirmed.\nItem: {item}",
+        "admin_topup_notice": (
+            "💳 New top up request\n\n"
+            "User: {name}\n"
+            "UID: {user_id}\n"
+            "Amount: {amount:.2f} USDT\n"
+            "Invoice: #{invoice_id}"
+        ),
+        "admin_purchase_notice": (
+            "🛒 New purchase request\n\n"
+            "User: {name}\n"
+            "UID: {user_id}\n"
+            "Item: {item}\n"
+            "Amount: {amount:.2f} USDT\n"
+            "Invoice: #{invoice_id}"
+        ),
+        "btn_confirm_topup": "✅ Confirm Top Up",
+        "btn_confirm_purchase": "✅ Confirm Delivery",
 
         "admin_only": "You are not allowed to use this command.",
         "admin_help": (
@@ -208,7 +252,6 @@ TRANSLATIONS = {
         "services_empty": "No services yet.",
         "services_admin_title": "📋 Service list:\n\n",
         "services_admin_line": "ID {id} | {title} | {price:.2f} USDT | Cat {category_id} | Featured: {featured}\n",
-
         "bad_addcategory": "Wrong syntax.\nExample:\n/addcategory Bot Rental | 机器人租用",
         "bad_addservice": "Wrong syntax.\nExample:\n/addservice 1 | Monthly Bot Rental | 49 | HOT | English description | 中文描述",
         "bad_feature": "Wrong syntax.\nExample:\n/feature 1 | 1",
@@ -218,57 +261,55 @@ TRANSLATIONS = {
 
     "zh": {
         "welcome": (
-            f"🔥 欢迎来到 {SHOP_NAME}\n\n"
-            "✅ 专业 Telegram 服务\n"
-            "✅ 处理高效，支持可靠\n"
-            "✅ 为个人与社群提供优质服务套餐\n\n"
-            "🎁 今日优惠已开启\n"
-            "👇 请选择下方功能开始\n\n"
+            f"♛ 欢迎来到 {SHOP_NAME}\n\n"
+            "✨ 高端 Telegram 礼宾服务\n"
+            "✨ 当前主推：私享号码 与 VIP 机器人\n"
+            "✨ 同时提供 Stars、Premium、礼品、广告与定制服务\n\n"
+            "👇 请选择下方高端分类\n\n"
             f"🆘 客服: {SUPPORT_USERNAME}\n"
             f"📢 频道: @ZXZ368"
         ),
         "choose_action": "请选择下面的功能：",
-        "btn_hot": "🔥 热门服务",
-        "btn_catalog": "🛍 服务目录",
-        "btn_promo": "💎 优惠活动",
+        "btn_language": "🌍 语言",
+        "btn_ads": "📢 广告服务",
+        "btn_cart_menu": "🛒 购物区",
         "btn_topup": "💳 充值",
+        "btn_catalog": "🛍 全部服务",
+        "btn_support": "🆘 客服",
+
+        "btn_anon": "👑 私享号码",
+        "btn_vip_bot": "🤖 VIP 机器人",
+        "btn_stars": "⭐ Stars",
+        "btn_premium": "⭐ Premium",
+        "btn_gifts": "🎁 礼品服务",
+        "btn_back": "⬅️ 返回",
+
+        "btn_channel": "📢 频道",
+        "btn_fast_broadcast": "⚡ 快速推送",
         "btn_balance": "💰 余额",
         "btn_orders": "📦 订单",
         "btn_invoice": "🧾 发票",
-        "btn_language": "🌍 语言",
-        "btn_support": "🆘 客服",
-        "btn_channel": "📢 频道",
-        "btn_center": "👤 个人中心",
 
         "language_title": "🌍 请选择语言：",
         "language_updated_en": "✅ Language changed to English.",
         "language_updated_zh": "✅ 语言已切换为中文。",
 
-        "back": "⬅️ 返回",
+        "menu_cart_title": "🛒 购物区\n\n请选择高端分类：",
+        "menu_services_title": "🛍 全部服务\n\n请选择下方功能：",
+
+        "anon_title": "👑 私享号码系列\n\n请选择一个号码：",
+        "vip_bot_title": "🤖 VIP 机器人套件\n\n请选择一个服务：",
+        "stars_title": "⭐ Stars 服务\n\n请选择一个服务：",
+        "premium_title": "⭐ Premium 服务\n\n请选择一个服务：",
+        "gifts_title": "🎁 礼品服务\n\n请选择一个服务：",
+        "ads_title": "📢 广告服务\n\n请选择一个服务：",
+        "broadcast_title": "⚡ 快速推送服务\n\n请选择一个服务：",
+
         "back_menu": "🏠 主菜单",
         "buy_now": "🛒 立即购买",
         "contact_support": "🆘 联系客服",
         "open_channel": "📢 打开频道",
-        "topup_now": "💳 立即充值",
         "view_invoice": "🧾 查看发票",
-
-        "hot_title": "🔥 热门服务\n\n请选择下面的套餐：",
-        "catalog_title": "🛍 服务分类\n\n请选择一个分类：",
-        "services_title": "📂 {category}\n\n请选择要查看的服务：",
-        "service_detail": (
-            "✨ {title}\n"
-            "🏷 {badge}\n"
-            "💵 价格: {price:.2f} USDT\n\n"
-            "{description}\n\n"
-            "📌 付款后，管理员将处理您的订单并联系您。"
-        ),
-
-        "promo_title": "💎 今日优惠\n\n{promo}",
-        "default_promo": (
-            "🎁 充值 100 USDT：赠送 5%\n"
-            "🎁 充值 300 USDT：赠送 10%\n"
-            "🎁 部分服务套餐限时优惠中"
-        ),
 
         "balance_text": "💰 当前余额: {balance:.2f} USDT",
         "balance_not_enough": "余额不足，请先充值。",
@@ -300,35 +341,74 @@ TRANSLATIONS = {
             "客服: {support}"
         ),
 
-        "center_text": (
-            "🌞 您好，{name}\n\n"
-            "🆔 用户ID: {user_id}\n"
-            "📅 注册时间: {created_at}\n"
-            "💰 余额: {balance:.2f} USDT\n"
-            "💸 总消费: {spent:.2f} USDT\n"
-            "📦 总订单: {orders}\n\n"
-            "请选择下面的功能。"
-        ),
-
         "support_text": (
             "🆘 客户支持\n\n"
             f"• 客服: {SUPPORT_USERNAME}\n"
             f"• 频道: {CHANNEL_URL}\n\n"
             "如果您需要服务咨询或付款确认，请联系客服。"
         ),
-
         "channel_text": "📢 商店官方频道：",
-        "topup_title": "💳 充值\n\n请选择金额，付款后请联系客户支持。",
+        "topup_title": "💳 充值\n\n请选择充值金额。",
         "topup_info": (
             "💳 充值 {amount} USDT\n\n"
             "{payment_text}\n\n"
             f"🆘 客服: {SUPPORT_USERNAME}\n"
-            "📌 发送您的 Telegram ID: {user_id}"
+            "📌 Telegram ID: {user_id}"
+        ),
+
+        "center_text": (
+            "🌞 您好，{name}\n\n"
+            "🆔 用户ID: {user_id}\n"
+            "📅 注册时间: {created_at}\n"
+            "💰 余额: {balance:.2f} USDT\n"
+            "💸 总消费: {spent:.2f} USDT\n"
+            "📦 总订单: {orders}\n"
         ),
 
         "no_categories": "暂无分类。",
-        "no_services": "该分类下暂无服务。",
+        "no_services": "暂无服务。",
+        "no_stock": "暂无库存。",
         "service_not_found": "未找到服务。",
+        "item_not_found": "未找到商品。",
+        "choose_amount": "请选择金额：",
+        "custom_amount_prompt_topup": "请输入自定义充值金额（USDT）。",
+        "custom_amount_prompt_purchase": "请输入自定义支付金额（USDT）。",
+        "invalid_amount": "金额无效，请输入大于 0 的数字。",
+        "stock_empty": "库存不足。",
+        "topup_created": (
+            "🧾 充值发票\n\n"
+            "发票编号: #{invoice_id}\n"
+            "金额: {amount:.2f} USDT\n\n"
+            "{payment_text}\n\n"
+            "付款后管理员将为您确认。"
+        ),
+        "purchase_created": (
+            "🧾 购买发票\n\n"
+            "发票编号: #{invoice_id}\n"
+            "商品: {item}\n"
+            "金额: {amount:.2f} USDT\n\n"
+            "{payment_text}\n\n"
+            "付款后管理员将确认并发货。"
+        ),
+        "topup_confirmed": "✅ 您的充值已确认。\n已为您到账 +{amount:.2f} USDT。",
+        "purchase_confirmed": "✅ 您的订单已确认。\n商品: {item}",
+        "admin_topup_notice": (
+            "💳 新充值请求\n\n"
+            "用户: {name}\n"
+            "UID: {user_id}\n"
+            "金额: {amount:.2f} USDT\n"
+            "发票: #{invoice_id}"
+        ),
+        "admin_purchase_notice": (
+            "🛒 新购买请求\n\n"
+            "用户: {name}\n"
+            "UID: {user_id}\n"
+            "商品: {item}\n"
+            "金额: {amount:.2f} USDT\n"
+            "发票: #{invoice_id}"
+        ),
+        "btn_confirm_topup": "✅ 确认充值",
+        "btn_confirm_purchase": "✅ 确认发货",
 
         "admin_only": "您没有权限使用此命令。",
         "admin_help": (
@@ -352,7 +432,6 @@ TRANSLATIONS = {
         "services_empty": "暂无服务。",
         "services_admin_title": "📋 服务列表：\n\n",
         "services_admin_line": "ID {id} | {title} | {price:.2f} USDT | 分类 {category_id} | 热门: {featured}\n",
-
         "bad_addcategory": "格式错误。\n例如：\n/addcategory Bot Rental | 机器人租用",
         "bad_addservice": "格式错误。\n例如：\n/addservice 1 | Monthly Bot Rental | 49 | HOT | English description | 中文描述",
         "bad_feature": "格式错误。\n例如：\n/feature 1 | 1",
@@ -371,26 +450,44 @@ def t(lang: str, key: str, **kwargs):
 def match_key(text: str, key: str):
     if not text:
         return False
-    return text in [TRANSLATIONS[lang][key] for lang in TRANSLATIONS]
+    return text in [TRANSLATIONS[lang][key] for lang in TRANSLATIONS if key in TRANSLATIONS[lang]]
 
 
 def make_invoice_no(order_id: int, created_at):
     return f"INV-{created_at:%Y%m%d}-{order_id:06d}"
 
 
-# =========================
-# KEYBOARDS
-# =========================
-
 def main_menu(lang: str):
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=t(lang, "btn_hot")), KeyboardButton(text=t(lang, "btn_catalog"))],
-            [KeyboardButton(text=t(lang, "btn_promo")), KeyboardButton(text=t(lang, "btn_topup"))],
-            [KeyboardButton(text=t(lang, "btn_balance")), KeyboardButton(text=t(lang, "btn_orders"))],
-            [KeyboardButton(text=t(lang, "btn_invoice")), KeyboardButton(text=t(lang, "btn_language"))],
-            [KeyboardButton(text=t(lang, "btn_support")), KeyboardButton(text=t(lang, "btn_channel"))],
-            [KeyboardButton(text=t(lang, "btn_center"))],
+            [KeyboardButton(text=t(lang, "btn_language")), KeyboardButton(text=t(lang, "btn_ads"))],
+            [KeyboardButton(text=t(lang, "btn_cart_menu")), KeyboardButton(text=t(lang, "btn_topup"))],
+            [KeyboardButton(text=t(lang, "btn_catalog")), KeyboardButton(text=t(lang, "btn_support"))],
+        ],
+        resize_keyboard=True
+    )
+
+
+def cart_menu(lang: str):
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t(lang, "btn_anon")), KeyboardButton(text=t(lang, "btn_vip_bot"))],
+            [KeyboardButton(text=t(lang, "btn_stars")), KeyboardButton(text=t(lang, "btn_premium"))],
+            [KeyboardButton(text=t(lang, "btn_gifts")), KeyboardButton(text=t(lang, "btn_topup"))],
+            [KeyboardButton(text=t(lang, "btn_back"))],
+        ],
+        resize_keyboard=True
+    )
+
+
+def services_menu(lang: str):
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t(lang, "btn_channel")), KeyboardButton(text=t(lang, "btn_fast_broadcast"))],
+            [KeyboardButton(text=t(lang, "btn_ads")), KeyboardButton(text=t(lang, "btn_balance"))],
+            [KeyboardButton(text=t(lang, "btn_orders")), KeyboardButton(text=t(lang, "btn_invoice"))],
+            [KeyboardButton(text=t(lang, "btn_support"))],
+            [KeyboardButton(text=t(lang, "btn_back"))],
         ],
         resize_keyboard=True
     )
@@ -419,19 +516,44 @@ def topup_kb(lang: str):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="10 USDT", callback_data="topup:10"),
-                InlineKeyboardButton(text="50 USDT", callback_data="topup:50"),
+                InlineKeyboardButton(text="50", callback_data="topup:50"),
+                InlineKeyboardButton(text="100", callback_data="topup:100"),
+                InlineKeyboardButton(text="200", callback_data="topup:200"),
             ],
             [
-                InlineKeyboardButton(text="100 USDT", callback_data="topup:100"),
-                InlineKeyboardButton(text="200 USDT", callback_data="topup:200"),
+                InlineKeyboardButton(text="500", callback_data="topup:500"),
+                InlineKeyboardButton(text="1000", callback_data="topup:1000"),
+                InlineKeyboardButton(text="2000", callback_data="topup:2000"),
             ],
             [
-                InlineKeyboardButton(text="500 USDT", callback_data="topup:500"),
-                InlineKeyboardButton(text="1000 USDT", callback_data="topup:1000"),
+                InlineKeyboardButton(text="自定义 / Custom", callback_data="topup:custom")
             ],
-            [InlineKeyboardButton(text=t(lang, "contact_support"), url=SUPPORT_LINK)],
-            [InlineKeyboardButton(text=t(lang, "back_menu"), callback_data="menu")],
+            [
+                InlineKeyboardButton(text=t(lang, "back_menu"), callback_data="menu")
+            ],
+        ]
+    )
+
+
+def amount_kb(item_id: int, lang: str):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="50", callback_data=f"buyamt:{item_id}:50"),
+                InlineKeyboardButton(text="100", callback_data=f"buyamt:{item_id}:100"),
+                InlineKeyboardButton(text="200", callback_data=f"buyamt:{item_id}:200"),
+            ],
+            [
+                InlineKeyboardButton(text="500", callback_data=f"buyamt:{item_id}:500"),
+                InlineKeyboardButton(text="1000", callback_data=f"buyamt:{item_id}:1000"),
+                InlineKeyboardButton(text="2000", callback_data=f"buyamt:{item_id}:2000"),
+            ],
+            [
+                InlineKeyboardButton(text="自定义 / Custom", callback_data=f"buyamtcustom:{item_id}")
+            ],
+            [
+                InlineKeyboardButton(text=t(lang, "back_menu"), callback_data="menu")
+            ],
         ]
     )
 
@@ -444,16 +566,20 @@ def back_to_menu_inline(lang: str):
     )
 
 
-# =========================
-# UI HELPERS
-# =========================
-
 def category_name(row, lang):
     return row["name_en"] if lang == "en" else row["name_zh"]
 
 
 def service_desc(row, lang):
     return row["desc_en"] if lang == "en" else row["desc_zh"]
+
+
+def premium_prefix(title: str):
+    if any(x in title for x in ["Private", "Anonymous", "888", "+"]):
+        return "👑 "
+    if any(x in title for x in ["Bot", "AI", "Suite"]):
+        return "🤖 "
+    return "✨ "
 
 
 async def safe_edit(call: CallbackQuery, text: str, reply_markup=None):
@@ -464,26 +590,28 @@ async def safe_edit(call: CallbackQuery, text: str, reply_markup=None):
             await call.message.edit_caption(caption=text, reply_markup=reply_markup)
         else:
             await call.message.answer(text, reply_markup=reply_markup)
-
     except TelegramBadRequest as e:
         err = str(e).lower()
-
         if "message is not modified" in err:
             return
-
         if "there is no text in the message to edit" in err:
             await call.message.answer(text, reply_markup=reply_markup)
             return
-
         if "message can't be edited" in err:
             await call.message.answer(text, reply_markup=reply_markup)
             return
-
         if "there is no caption in the message to edit" in err:
             await call.message.answer(text, reply_markup=reply_markup)
             return
-
         raise
+
+
+async def find_category_by_name_en(name_en: str):
+    rows = await list_categories()
+    for row in rows:
+        if row["name_en"] == name_en:
+            return row
+    return None
 
 
 async def send_home(target, lang: str):
@@ -501,81 +629,68 @@ async def send_home(target, lang: str):
         await target.message.answer(text, reply_markup=main_menu(lang))
 
 
-async def send_categories(target, lang: str):
-    rows = await list_categories()
-    if not rows:
-        if isinstance(target, Message):
-            await target.answer(t(lang, "no_categories"))
-        else:
-            await safe_edit(target, t(lang, "no_categories"))
-        return
-
-    kb = InlineKeyboardBuilder()
-    for row in rows:
-        kb.button(text=category_name(row, lang), callback_data=f"cat:{row['id']}")
-    kb.button(text=t(lang, "back_menu"), callback_data="menu")
-    kb.adjust(1)
-
-    if isinstance(target, Message):
-        await target.answer(t(lang, "catalog_title"), reply_markup=kb.as_markup())
-    else:
-        await safe_edit(target, t(lang, "catalog_title"), reply_markup=kb.as_markup())
-
-
-async def send_featured(target, lang: str):
-    rows = await list_featured_services()
-    if not rows:
-        if isinstance(target, Message):
-            await target.answer(t(lang, "services_empty"))
-        else:
-            await safe_edit(target, t(lang, "services_empty"))
-        return
-
-    kb = InlineKeyboardBuilder()
-    for row in rows:
-        kb.button(
-            text=f"{row['title']} - {float(row['price']):.2f} USDT",
-            callback_data=f"service:{row['id']}"
-        )
-    kb.button(text=t(lang, "back_menu"), callback_data="menu")
-    kb.adjust(1)
-
-    if isinstance(target, Message):
-        await target.answer(t(lang, "hot_title"), reply_markup=kb.as_markup())
-    else:
-        await safe_edit(target, t(lang, "hot_title"), reply_markup=kb.as_markup())
-
-
-async def send_services_by_category(call: CallbackQuery, lang: str, category_id: int):
-    category = await get_category(category_id)
+async def send_services_from_category_name(target, lang: str, category_name_en: str, title_key: str, icon: str = "✨"):
+    category = await find_category_by_name_en(category_name_en)
     if not category:
-        await call.answer(t(lang, "no_categories"), show_alert=True)
+        if isinstance(target, Message):
+            await target.answer(t(lang, "no_services"))
+        else:
+            await safe_edit(target, t(lang, "no_services"))
         return
 
-    rows = await list_services_by_category(category_id)
+    rows = await list_services_by_category(category["id"])
     if not rows:
-        await safe_edit(
-            call,
-            t(lang, "no_services"),
-            reply_markup=back_to_menu_inline(lang)
-        )
+        if isinstance(target, Message):
+            await target.answer(t(lang, "no_services"))
+        else:
+            await safe_edit(target, t(lang, "no_services"))
         return
 
     kb = InlineKeyboardBuilder()
     for row in rows:
         kb.button(
-            text=f"{row['title']} - {float(row['price']):.2f} USDT",
+            text=f"{icon} {row['title']} - {float(row['price']):.2f} USDT",
             callback_data=f"service:{row['id']}"
         )
-    kb.button(text=t(lang, "back"), callback_data="catalog")
     kb.button(text=t(lang, "back_menu"), callback_data="menu")
     kb.adjust(1)
 
-    await safe_edit(
-        call,
-        t(lang, "services_title", category=category_name(category, lang)),
-        reply_markup=kb.as_markup()
-    )
+    if isinstance(target, Message):
+        await target.answer(t(lang, title_key), reply_markup=kb.as_markup())
+    else:
+        await safe_edit(target, t(lang, title_key), reply_markup=kb.as_markup())
+
+
+async def send_inventory_from_category_name(target, lang: str, category_name_en: str, title_key: str):
+    category = await find_category_by_name_en(category_name_en)
+    if not category:
+        if isinstance(target, Message):
+            await target.answer(t(lang, "no_stock"))
+        else:
+            await safe_edit(target, t(lang, "no_stock"))
+        return
+
+    rows = await list_inventory_by_category(category["id"])
+    if not rows:
+        if isinstance(target, Message):
+            await target.answer(t(lang, "no_stock"))
+        else:
+            await safe_edit(target, t(lang, "no_stock"))
+        return
+
+    kb = InlineKeyboardBuilder()
+    for row in rows:
+        kb.button(
+            text=f"{row['title']} ({int(row['stock'])})",
+            callback_data=f"item:{row['id']}"
+        )
+    kb.button(text=t(lang, "back_menu"), callback_data="menu")
+    kb.adjust(1)
+
+    if isinstance(target, Message):
+        await target.answer(t(lang, title_key), reply_markup=kb.as_markup())
+    else:
+        await safe_edit(target, t(lang, title_key), reply_markup=kb.as_markup())
 
 
 async def send_service_detail(call: CallbackQuery, lang: str, service_id: int):
@@ -593,17 +708,45 @@ async def send_service_detail(call: CallbackQuery, lang: str, service_id: int):
         ]
     )
 
+    title = f"{premium_prefix(row['title'])}{row['title']}"
     await safe_edit(
         call,
         t(
             lang,
             "service_detail",
-            title=row["title"],
+            title=title,
             badge=row["badge"],
             price=float(row["price"]),
             description=service_desc(row, lang)
         ),
         reply_markup=kb
+    )
+
+
+async def send_services_by_category(call: CallbackQuery, lang: str, category_id: int):
+    category = await get_category(category_id)
+    if not category:
+        await call.answer(t(lang, "no_categories"), show_alert=True)
+        return
+
+    rows = await list_services_by_category(category_id)
+    if not rows:
+        await safe_edit(call, t(lang, "no_services"), reply_markup=back_to_menu_inline(lang))
+        return
+
+    kb = InlineKeyboardBuilder()
+    for row in rows:
+        kb.button(
+            text=f"{row['title']} - {float(row['price']):.2f} USDT",
+            callback_data=f"service:{row['id']}"
+        )
+    kb.button(text=t(lang, "back_menu"), callback_data="menu")
+    kb.adjust(1)
+
+    await safe_edit(
+        call,
+        t(lang, "services_title", category=category_name(category, lang)),
+        reply_markup=kb.as_markup()
     )
 
 
@@ -666,10 +809,6 @@ async def send_invoice_detail(call: CallbackQuery, lang: str, order_id: int):
     await safe_edit(call, text, reply_markup=kb)
 
 
-# =========================
-# USER HANDLERS
-# =========================
-
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     user = await get_or_create_user_from_tg(message.from_user)
@@ -696,34 +835,18 @@ async def cb_language(call: CallbackQuery):
     await call.answer()
 
 
-@dp.message(lambda m: m.text and match_key(m.text, "btn_hot"))
-async def menu_hot(message: Message):
+@dp.message(lambda m: m.text and match_key(m.text, "btn_ads"))
+async def menu_ads(message: Message):
     await get_or_create_user_from_tg(message.from_user)
     lang = await get_user_lang(message.from_user.id)
-    await send_featured(message, lang)
+    await send_services_from_category_name(message, lang, "Broadcast & Advertising", "ads_title", "📢")
 
 
-@dp.message(lambda m: m.text and match_key(m.text, "btn_catalog"))
-async def menu_catalog(message: Message):
+@dp.message(lambda m: m.text and match_key(m.text, "btn_cart_menu"))
+async def menu_cart_area(message: Message):
     await get_or_create_user_from_tg(message.from_user)
     lang = await get_user_lang(message.from_user.id)
-    await send_categories(message, lang)
-
-
-@dp.message(lambda m: m.text and match_key(m.text, "btn_promo"))
-async def menu_promo(message: Message):
-    await get_or_create_user_from_tg(message.from_user)
-    lang = await get_user_lang(message.from_user.id)
-    promo = await get_promo_text(lang)
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "topup_now"), callback_data="open_topup")],
-            [InlineKeyboardButton(text=t(lang, "back_menu"), callback_data="menu")]
-        ]
-    )
-
-    await message.answer(t(lang, "promo_title", promo=promo), reply_markup=kb)
+    await message.answer(t(lang, "menu_cart_title"), reply_markup=cart_menu(lang))
 
 
 @dp.message(lambda m: m.text and match_key(m.text, "btn_topup"))
@@ -731,6 +854,82 @@ async def menu_topup(message: Message):
     await get_or_create_user_from_tg(message.from_user)
     lang = await get_user_lang(message.from_user.id)
     await message.answer(t(lang, "topup_title"), reply_markup=topup_kb(lang))
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_catalog"))
+async def menu_all_services(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await message.answer(t(lang, "menu_services_title"), reply_markup=services_menu(lang))
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_support"))
+async def menu_support(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await message.answer(t(lang, "support_text"), reply_markup=support_kb(lang))
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_back"))
+async def back_main(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await message.answer(t(lang, "choose_action"), reply_markup=main_menu(lang))
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_anon"))
+async def menu_anon(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await send_inventory_from_category_name(message, lang, "Nice Numbers & Anonymous", "anon_title")
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_vip_bot"))
+async def menu_vip_bot(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await send_services_from_category_name(message, lang, "VIP Bot Suites", "vip_bot_title", "🤖")
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_stars"))
+async def menu_stars(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await send_services_from_category_name(message, lang, "Stars Services", "stars_title", "⭐")
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_premium"))
+async def menu_premium(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await send_services_from_category_name(message, lang, "Premium Services", "premium_title", "⭐")
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_gifts"))
+async def menu_gifts(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await send_services_from_category_name(message, lang, "Gifts", "gifts_title", "🎁")
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_channel"))
+async def menu_channel(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "open_channel"), url=CHANNEL_URL)],
+            [InlineKeyboardButton(text=t(lang, "back_menu"), callback_data="menu")]
+        ]
+    )
+    await message.answer(t(lang, "channel_text"), reply_markup=kb)
+
+
+@dp.message(lambda m: m.text and match_key(m.text, "btn_fast_broadcast"))
+async def menu_fast_broadcast(message: Message):
+    await get_or_create_user_from_tg(message.from_user)
+    lang = await get_user_lang(message.from_user.id)
+    await send_services_from_category_name(message, lang, "Broadcast & Advertising", "broadcast_title", "⚡")
 
 
 @dp.message(lambda m: m.text and match_key(m.text, "btn_balance"))
@@ -760,7 +959,6 @@ async def menu_orders(message: Message):
             status=row["status"],
             created_at=row["created_at"].strftime("%Y-%m-%d %H:%M")
         )
-
     await message.answer(text)
 
 
@@ -771,63 +969,15 @@ async def menu_invoices(message: Message):
     await send_invoices_list(message, lang, message.from_user.id)
 
 
-@dp.message(lambda m: m.text and match_key(m.text, "btn_support"))
-async def menu_support(message: Message):
-    await get_or_create_user_from_tg(message.from_user)
-    lang = await get_user_lang(message.from_user.id)
-    await message.answer(t(lang, "support_text"), reply_markup=support_kb(lang))
-
-
-@dp.message(lambda m: m.text and match_key(m.text, "btn_channel"))
-async def menu_channel(message: Message):
-    await get_or_create_user_from_tg(message.from_user)
-    lang = await get_user_lang(message.from_user.id)
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "open_channel"), url=CHANNEL_URL)],
-            [InlineKeyboardButton(text=t(lang, "back_menu"), callback_data="menu")]
-        ]
-    )
-    await message.answer(t(lang, "channel_text"), reply_markup=kb)
-
-
-@dp.message(lambda m: m.text and match_key(m.text, "btn_center"))
-async def menu_center(message: Message):
-    user = await get_or_create_user_from_tg(message.from_user)
-    lang = user["language"] or "zh"
-    total_orders = await user_orders_count(message.from_user.id)
-
-    await message.answer(
-        t(
-            lang,
-            "center_text",
-            name=message.from_user.full_name,
-            user_id=message.from_user.id,
-            created_at=user["created_at"].strftime("%Y-%m-%d %H:%M"),
-            balance=float(user["balance"]),
-            spent=float(user["total_spent"]),
-            orders=total_orders
-        ),
-        reply_markup=main_menu(lang)
-    )
-
-
-# =========================
-# CALLBACK HANDLERS
-# =========================
-
-@dp.callback_query(F.data == "menu")
+@dp.callback_query(F.data == "menu"))
 async def cb_menu(call: CallbackQuery):
     lang = await get_user_lang(call.from_user.id)
     await call.message.answer(t(lang, "choose_action"), reply_markup=main_menu(lang))
     await call.answer()
-
-
-@dp.callback_query(F.data == "catalog")
-async def cb_catalog(call: CallbackQuery):
+@dp.callback_query(F.data == "menu")
+async def cb_menu(call: CallbackQuery):
     lang = await get_user_lang(call.from_user.id)
-    await send_categories(call, lang)
+    await call.message.answer(t(lang, "choose_action"), reply_markup=main_menu(lang))
     await call.answer()
 
 
@@ -906,20 +1056,230 @@ async def cb_buy(call: CallbackQuery):
 
 
 @dp.callback_query(F.data.startswith("topup:"))
-async def cb_topup(call: CallbackQuery):
+async def cb_topup(call: CallbackQuery, state: FSMContext):
     lang = await get_user_lang(call.from_user.id)
-    amount = call.data.split(":")[1]
+    amount_raw = call.data.split(":")[1]
+
+    if amount_raw == "custom":
+        await state.set_state(AmountFSM.waiting_custom_topup)
+        await call.message.answer(t(lang, "custom_amount_prompt_topup"))
+        await call.answer()
+        return
+
+    amount = float(amount_raw)
+    row = await create_topup_request(call.from_user.id, amount)
+
     await call.message.answer(
         t(
             lang,
-            "topup_info",
-            amount=amount,
-            payment_text=PAYMENT_TEXT,
-            user_id=call.from_user.id
+            "topup_created",
+            invoice_id=row["id"],
+            amount=float(row["amount"]),
+            payment_text=PAYMENT_TEXT
         ),
-        reply_markup=support_kb(lang)
+        parse_mode="HTML"
+    )
+
+    if ADMIN_ID:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_topup"), callback_data=f"admin_confirm_topup:{row['id']}")]
+            ]
+        )
+        await bot.send_message(
+            ADMIN_ID,
+            t(
+                lang,
+                "admin_topup_notice",
+                name=call.from_user.full_name,
+                user_id=call.from_user.id,
+                amount=float(row["amount"]),
+                invoice_id=row["id"]
+            ),
+            reply_markup=kb
+        )
+
+    await call.answer()
+
+
+@dp.message(AmountFSM.waiting_custom_topup)
+async def custom_topup_amount(message: Message, state: FSMContext):
+    lang = await get_user_lang(message.from_user.id)
+    try:
+        amount = float((message.text or "").strip())
+        if amount <= 0:
+            raise ValueError
+    except Exception:
+        await message.answer(t(lang, "invalid_amount"))
+        return
+
+    row = await create_topup_request(message.from_user.id, amount)
+    await message.answer(
+        t(
+            lang,
+            "topup_created",
+            invoice_id=row["id"],
+            amount=float(row["amount"]),
+            payment_text=PAYMENT_TEXT
+        ),
+        parse_mode="HTML"
+    )
+
+    if ADMIN_ID:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_topup"), callback_data=f"admin_confirm_topup:{row['id']}")]
+            ]
+        )
+        await bot.send_message(
+            ADMIN_ID,
+            t(
+                lang,
+                "admin_topup_notice",
+                name=message.from_user.full_name,
+                user_id=message.from_user.id,
+                amount=float(row["amount"]),
+                invoice_id=row["id"]
+            ),
+            reply_markup=kb
+        )
+
+    await state.clear()
+
+
+@dp.callback_query(F.data.startswith("item:"))
+async def cb_item(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id)
+    item_id = int(call.data.split(":")[1])
+    item = await get_inventory_item(item_id)
+
+    if not item:
+        await call.answer(t(lang, "item_not_found"), show_alert=True)
+        return
+
+    if int(item["stock"]) <= 0:
+        await call.answer(t(lang, "stock_empty"), show_alert=True)
+        return
+
+    await call.message.answer(
+        f"{item['title']} ({int(item['stock'])})\n\n{t(lang, 'choose_amount')}",
+        reply_markup=amount_kb(item_id, lang)
     )
     await call.answer()
+
+
+@dp.callback_query(F.data.startswith("buyamt:"))
+async def cb_buy_amount(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id)
+    _, item_id, amount_raw = call.data.split(":")
+    amount = float(amount_raw)
+
+    row = await create_purchase_request(call.from_user.id, int(item_id), amount)
+    if not row:
+        await call.answer(t(lang, "stock_empty"), show_alert=True)
+        return
+
+    await call.message.answer(
+        t(
+            lang,
+            "purchase_created",
+            invoice_id=row["id"],
+            item=row["item_title"],
+            amount=float(row["amount"]),
+            payment_text=PAYMENT_TEXT
+        ),
+        parse_mode="HTML"
+    )
+
+    if ADMIN_ID:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
+            ]
+        )
+        await bot.send_message(
+            ADMIN_ID,
+            t(
+                lang,
+                "admin_purchase_notice",
+                name=call.from_user.full_name,
+                user_id=call.from_user.id,
+                item=row["item_title"],
+                amount=float(row["amount"]),
+                invoice_id=row["id"]
+            ),
+            reply_markup=kb
+        )
+
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("buyamtcustom:"))
+async def cb_buy_amount_custom(call: CallbackQuery, state: FSMContext):
+    lang = await get_user_lang(call.from_user.id)
+    item_id = int(call.data.split(":")[1])
+    await state.update_data(custom_purchase_item_id=item_id)
+    await state.set_state(AmountFSM.waiting_custom_purchase)
+    await call.message.answer(t(lang, "custom_amount_prompt_purchase"))
+    await call.answer()
+
+
+@dp.message(AmountFSM.waiting_custom_purchase)
+async def custom_purchase_amount(message: Message, state: FSMContext):
+    lang = await get_user_lang(message.from_user.id)
+    data = await state.get_data()
+    item_id = data.get("custom_purchase_item_id")
+
+    if not item_id:
+        await state.clear()
+        return await message.answer(t(lang, "item_not_found"))
+
+    try:
+        amount = float((message.text or "").strip())
+        if amount <= 0:
+            raise ValueError
+    except Exception:
+        await message.answer(t(lang, "invalid_amount"))
+        return
+
+    row = await create_purchase_request(message.from_user.id, int(item_id), amount)
+    if not row:
+        await state.clear()
+        return await message.answer(t(lang, "stock_empty"))
+
+    await message.answer(
+        t(
+            lang,
+            "purchase_created",
+            invoice_id=row["id"],
+            item=row["item_title"],
+            amount=float(row["amount"]),
+            payment_text=PAYMENT_TEXT
+        ),
+        parse_mode="HTML"
+    )
+
+    if ADMIN_ID:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
+            ]
+        )
+        await bot.send_message(
+            ADMIN_ID,
+            t(
+                lang,
+                "admin_purchase_notice",
+                name=message.from_user.full_name,
+                user_id=message.from_user.id,
+                item=row["item_title"],
+                amount=float(row["amount"]),
+                invoice_id=row["id"]
+            ),
+            reply_markup=kb
+        )
+
+    await state.clear()
 
 
 @dp.callback_query(F.data == "invoice_list")
@@ -937,9 +1297,41 @@ async def cb_invoice_detail(call: CallbackQuery):
     await call.answer()
 
 
-# =========================
-# ADMIN COMMANDS
-# =========================
+@dp.callback_query(F.data.startswith("admin_confirm_topup:"))
+async def cb_admin_confirm_topup(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        return await call.answer("No permission", show_alert=True)
+
+    row = await confirm_topup_request(int(call.data.split(":")[1]))
+    if not row:
+        return await call.answer("Invalid request", show_alert=True)
+
+    await bot.send_message(
+        row["telegram_id"],
+        t("zh", "topup_confirmed", amount=float(row["amount"]))
+    )
+    await call.message.answer(f"✅ 已确认充值 #{row['id']}")
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("admin_confirm_purchase:"))
+async def cb_admin_confirm_purchase(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        return await call.answer("No permission", show_alert=True)
+
+    result = await confirm_purchase_request(int(call.data.split(":")[1]))
+    if result is False:
+        return await call.answer("Out of stock", show_alert=True)
+    if not result:
+        return await call.answer("Invalid request", show_alert=True)
+
+    await bot.send_message(
+        result["telegram_id"],
+        t("zh", "purchase_confirmed", item=result["item_title"])
+    )
+    await call.message.answer(f"✅ 已确认发货 #{result['id']}")
+    await call.answer()
+
 
 def is_admin(user_id: int):
     return user_id == ADMIN_ID
@@ -958,7 +1350,6 @@ async def cmd_admin(message: Message):
 async def cmd_seed(message: Message):
     await get_or_create_user_from_tg(message.from_user)
     lang = await get_user_lang(message.from_user.id)
-
     if not is_admin(message.from_user.id):
         return await message.answer(t(lang, "admin_only"))
 
@@ -977,7 +1368,6 @@ async def cmd_addcategory(message: Message):
     try:
         raw = message.text.replace("/addcategory", "", 1).strip()
         name_en, name_zh = [x.strip() for x in raw.split("|", 1)]
-
         await add_category(name_en, name_zh)
         await message.answer(t(lang, "category_added"))
     except Exception:
@@ -1021,7 +1411,6 @@ async def cmd_feature(message: Message):
         raw = message.text.replace("/feature", "", 1).strip()
         service_id, val = [x.strip() for x in raw.split("|", 1)]
         featured = val == "1"
-
         await set_featured(int(service_id), featured)
         await message.answer(t(lang, "feature_updated"))
     except Exception:
@@ -1039,7 +1428,6 @@ async def cmd_setbalance(message: Message):
     try:
         raw = message.text.replace("/setbalance", "", 1).strip()
         tg_id, amount = [x.strip() for x in raw.split("|", 1)]
-
         await set_balance(int(tg_id), float(amount))
         await message.answer(t(lang, "balance_updated"))
     except Exception:
@@ -1071,7 +1459,6 @@ async def cmd_services(message: Message):
         return await message.answer(t(lang, "admin_only"))
 
     rows = await list_services_admin()
-
     if not rows:
         return await message.answer(t(lang, "services_empty"))
 
@@ -1086,7 +1473,6 @@ async def cmd_services(message: Message):
             category_id=row["category_id"],
             featured=row["featured"]
         )
-
     await message.answer(text)
 
 
@@ -1110,22 +1496,23 @@ async def cmd_broadcast(message: Message):
         try:
             await bot.send_message(uid, content)
             ok += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.08)
         except Exception:
             fail += 1
 
     await message.answer(t(lang, "broadcast_done", ok=ok, fail=fail))
 
 
-# =========================
-# STARTUP
-# =========================
-
 async def main():
     await init_db()
     await bot.delete_webhook(drop_pending_updates=True)
     print("Bot is running...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await close_db()
+        await bot.session.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
