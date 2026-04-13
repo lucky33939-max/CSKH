@@ -136,7 +136,46 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_balance_tx_user_created
         ON balance_transactions(user_id, created_at DESC)
         """)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id BIGINT PRIMARY KEY,
+    balance NUMERIC DEFAULT 0
+);
+""")
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS products (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    price NUMERIC,
+    stock INT DEFAULT 0
+);
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS accounts (
+    id SERIAL PRIMARY KEY,
+    product_id INT,
+    data TEXT,
+    is_sold BOOLEAN DEFAULT FALSE
+);
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS orders (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT,
+    product_id INT,
+    price NUMERIC,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS payments (
+    payment_id TEXT PRIMARY KEY
+);
+""")
 
 # ================= USERS =================
 
