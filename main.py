@@ -24,7 +24,7 @@ db_pool = None
 # DB AUTO RECONNECT
 # =========================
 async def init_db():
-    global db_pool
+    global db_pool  # 👈 PHẢI Ở DÒNG ĐẦU
 
     while True:
         try:
@@ -34,12 +34,14 @@ async def init_db():
                 max_size=5,
                 max_inactive_connection_lifetime=30
             )
+
             print("✅ DB Connected")
             break
-        except Exception as e:
-            print("❌ DB FAIL, retry...", e)
-            await asyncio.sleep(5)
 
+        except Exception as e:
+            print("❌ DB FAIL:", e)
+            await asyncio.sleep(5)
+            
 # =========================
 # KEEP DB ALIVE
 # =========================
