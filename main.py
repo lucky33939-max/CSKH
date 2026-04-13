@@ -51,6 +51,7 @@ async def init_db():
 # =========================
 # MENU
 # =========================
+# ================= MENU =================
 def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -62,43 +63,37 @@ def main_menu():
         ],
         resize_keyboard=True
     )
-# =========================
-# START
-# =========================
+
+# ================= START =================
 @dp.message(F.text == "/start")
 async def start(msg: Message):
     await msg.answer("🚀 Bot Ready", reply_markup=main_menu())
 
-# =========================
 
-@dp.message(F.text.contains("🌐"))
-async def lang_menu(msg: Message):
-    await msg.answer("🌐 Choose language")
+# ================= HANDLERS =================
+@dp.message(F.text == "👑 Numbers")
+async def numbers(msg: Message):
+    await msg.answer("👑 Numbers OK")
 
-@dp.message(F.text == "🔥📦 Numbers")
-async def numbers_menu(msg: Message):
-    await msg.answer("📱 SIM MENU\n\nChọn loại số:")
-    
-    @dp.message(F.text == "👑 Rent 888 (HOT)")
-async def rent_menu(msg: Message):
-    await msg.answer("👑 888 RENT MENU")
+@dp.message(F.text == "🔥📦 Rent 888 (HOT)")
+async def rent(msg: Message):
+    await msg.answer("🔥 888 OK")
 
 @dp.message(F.text == "⭐ Stars")
-async def stars_menu(msg: Message):
-    await msg.answer("⭐ Stars Menu")
+async def stars(msg: Message):
+    await msg.answer("⭐ Stars OK")
 
 @dp.message(F.text == "💎 Premium")
-async def premium_menu(msg: Message):
-    await msg.answer("💎 Premium Menu")
+async def premium(msg: Message):
+    await msg.answer("💎 Premium OK")
 
 @dp.message(F.text == "🎁 Gifts")
-async def gift_menu(msg: Message):
-    await msg.answer("🎁 Gift Menu")
+async def gifts(msg: Message):
+    await msg.answer("🎁 Gifts OK")
 
 @dp.message(F.text == "🌐 Language")
-async def language_menu(msg: Message):
-    await msg.answer("🌐 Choose Language:\n🇻🇳 Vietnamese\n🇬🇧 English\n🇨🇳 中文")
-
+async def lang(msg: Message):
+    await msg.answer("🌐 Language OK")
 
 # =========================
 async def create_order(user_id, product_type, product_id, amount):
@@ -235,7 +230,6 @@ async def reject(call: CallbackQuery):
 
     await call.message.answer("❌ Rejected")
     await call.answer()
-await bot.delete_webhook(drop_pending_updates=True)
 
 # =========================
 # RUN
