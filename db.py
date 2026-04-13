@@ -414,3 +414,22 @@ async def list_services_admin():
             FROM services
             ORDER BY id ASC
         """)
+async def init_db():
+    global db_pool
+    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    print("DB connected")
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT UNIQUE NOT NULL,
+            username TEXT,
+            full_name TEXT,
+            language TEXT DEFAULT 'zh',
+            balance NUMERIC(12,2) NOT NULL DEFAULT 0,
+            total_spent NUMERIC(12,2) NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        """)
+        print("users table ready")
