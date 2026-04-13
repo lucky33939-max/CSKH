@@ -64,7 +64,6 @@ SUPPORT_LINK = f"https://t.me/{SUPPORT_USERNAME.lstrip('@')}"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-db_pool = None
 
 
 # =========================
