@@ -1417,21 +1417,25 @@ async def cmd_broadcast(message: Message):
         try:
             await bot.send_message(uid, content)
             ok += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.08)
         except Exception:
             fail += 1
 
     await message.answer(t(lang, "broadcast_done", ok=ok, fail=fail))
 
-
 # =========================
 # STARTUP
 # =========================
-
 async def main():
+    global db_pool
     await init_db()
     print("Bot is running...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        if db_pool:
+            await db_pool.close()
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
