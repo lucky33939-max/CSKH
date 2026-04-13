@@ -1,15 +1,35 @@
-import os
+import asyncio
+from aiogram import Bot, Dispatcher
+from aiohttp import web
+from config import TOKEN
+from handlers import register_all
+from webhook import webhook
 
-TOKEN = os.getenv("TOKEN")
-NOWPAY_API_KEY = os.getenv("NOWPAY_API_KEY")
+async def start_bot():
+    bot = Bot(token=TOKEN)
+    dp = Dispatcher()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "@support").strip()
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@channel").strip()
-PAYMENT_ADDRESS = os.getenv("PAYMENT_ADDRESS", "").strip()
+    register_all(dp)
 
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is missing")
+    print("✅ Bot started")
+    await dp.start_polling(bot)
+
+async def start_web():
+    app = web.Application()
+    app.router.add_post("/webhook", webhook)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+
+    print("🌐 Webhook server started")
+
+async def main():
+    await asyncio.gather(
+        start_bot(),
+        start_web()
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
