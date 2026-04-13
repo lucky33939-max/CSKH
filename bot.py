@@ -1,6 +1,5 @@
 import os
 import asyncio
-
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, F
@@ -18,8 +17,8 @@ from aiogram.exceptions import TelegramBadRequest
 
 from db import (
     init_db,
-    close_db,
     get_or_create_user_from_tg,
+    get_user,
     get_user_lang,
     set_user_lang,
     get_promo_text,
@@ -45,8 +44,8 @@ from db import (
 
 load_dotenv()
 
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "@ZZB339")
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/ZXZ368")
@@ -59,6 +58,8 @@ PAYMENT_TEXT = os.getenv(
 
 if not BOT_TOKEN:
     raise ValueError("Missing BOT_TOKEN")
+if not DATABASE_URL:
+    raise ValueError("Missing DATABASE_URL")
 
 SUPPORT_LINK = f"https://t.me/{SUPPORT_USERNAME.lstrip('@')}"
 
@@ -346,7 +347,7 @@ TRANSLATIONS = {
         "service_added": "✅ 已添加服务。",
         "feature_updated": "✅ 已更新热门状态。",
         "balance_updated": "✅ 余额已更新。",
-        "promo_updated": "✅ 优惠内容已更新。",
+        "promo_updated": "✅ 已更新优惠内容。",
         "broadcast_done": "✅ 群发完成。\n成功: {ok}\n失败: {fail}",
         "services_empty": "暂无服务。",
         "services_admin_title": "📋 服务列表：\n\n",
@@ -442,6 +443,7 @@ def back_to_menu_inline(lang: str):
         ]
     )
 
+
 # =========================
 # UI HELPERS
 # =========================
@@ -452,6 +454,36 @@ def category_name(row, lang):
 
 def service_desc(row, lang):
     return row["desc_en"] if lang == "en" else row["desc_zh"]
+
+
+async def safe_edit(call: CallbackQuery, text: str, reply_markup=None):
+    try:
+        if getattr(call.message, "text", None):
+            await call.message.edit_text(text, reply_markup=reply_markup)
+        elif getattr(call.message, "caption", None) is not None:
+            await call.message.edit_caption(caption=text, reply_markup=reply_markup)
+        else:
+            await call.message.answer(text, reply_markup=reply_markup)
+
+    except TelegramBadRequest as e:
+        err = str(e).lower()
+
+        if "message is not modified" in err:
+            return
+
+        if "there is no text in the message to edit" in err:
+            await call.message.answer(text, reply_markup=reply_markup)
+            return
+
+        if "message can't be edited" in err:
+            await call.message.answer(text, reply_markup=reply_markup)
+            return
+
+        if "there is no caption in the message to edit" in err:
+            await call.message.answer(text, reply_markup=reply_markup)
+            return
+
+        raise
 
 
 async def send_home(target, lang: str):
@@ -475,7 +507,7 @@ async def send_categories(target, lang: str):
         if isinstance(target, Message):
             await target.answer(t(lang, "no_categories"))
         else:
-            await target.message.edit_text(t(lang, "no_categories"))
+            await safe_edit(target, t(lang, "no_categories"))
         return
 
     kb = InlineKeyboardBuilder()
@@ -487,7 +519,7 @@ async def send_categories(target, lang: str):
     if isinstance(target, Message):
         await target.answer(t(lang, "catalog_title"), reply_markup=kb.as_markup())
     else:
-        await target.message.edit_text(t(lang, "catalog_title"), reply_markup=kb.as_markup())
+        await safe_edit(target, t(lang, "catalog_title"), reply_markup=kb.as_markup())
 
 
 async def send_featured(target, lang: str):
@@ -496,7 +528,7 @@ async def send_featured(target, lang: str):
         if isinstance(target, Message):
             await target.answer(t(lang, "services_empty"))
         else:
-            await target.message.edit_text(t(lang, "services_empty"))
+            await safe_edit(target, t(lang, "services_empty"))
         return
 
     kb = InlineKeyboardBuilder()
@@ -511,7 +543,7 @@ async def send_featured(target, lang: str):
     if isinstance(target, Message):
         await target.answer(t(lang, "hot_title"), reply_markup=kb.as_markup())
     else:
-        await target.message.edit_text(t(lang, "hot_title"), reply_markup=kb.as_markup())
+        await safe_edit(target, t(lang, "hot_title"), reply_markup=kb.as_markup())
 
 
 async def send_services_by_category(call: CallbackQuery, lang: str, category_id: int):
@@ -522,7 +554,8 @@ async def send_services_by_category(call: CallbackQuery, lang: str, category_id:
 
     rows = await list_services_by_category(category_id)
     if not rows:
-        await call.message.edit_text(
+        await safe_edit(
+            call,
             t(lang, "no_services"),
             reply_markup=back_to_menu_inline(lang)
         )
@@ -538,7 +571,8 @@ async def send_services_by_category(call: CallbackQuery, lang: str, category_id:
     kb.button(text=t(lang, "back_menu"), callback_data="menu")
     kb.adjust(1)
 
-    await call.message.edit_text(
+    await safe_edit(
+        call,
         t(lang, "services_title", category=category_name(category, lang)),
         reply_markup=kb.as_markup()
     )
@@ -559,7 +593,8 @@ async def send_service_detail(call: CallbackQuery, lang: str, service_id: int):
         ]
     )
 
-    await call.message.edit_text(
+    await safe_edit(
+        call,
         t(
             lang,
             "service_detail",
@@ -578,7 +613,7 @@ async def send_invoices_list(target, lang: str, tg_id: int):
         if isinstance(target, Message):
             await target.answer(t(lang, "invoices_empty"))
         else:
-            await target.message.edit_text(t(lang, "invoices_empty"))
+            await safe_edit(target, t(lang, "invoices_empty"))
         return
 
     kb = InlineKeyboardBuilder()
@@ -594,7 +629,7 @@ async def send_invoices_list(target, lang: str, tg_id: int):
     if isinstance(target, Message):
         await target.answer(t(lang, "invoices_title"), reply_markup=kb.as_markup())
     else:
-        await target.message.edit_text(t(lang, "invoices_title"), reply_markup=kb.as_markup())
+        await safe_edit(target, t(lang, "invoices_title"), reply_markup=kb.as_markup())
 
 
 async def send_invoice_detail(call: CallbackQuery, lang: str, order_id: int):
@@ -628,7 +663,7 @@ async def send_invoice_detail(call: CallbackQuery, lang: str, order_id: int):
         ]
     )
 
-    await call.message.edit_text(text, reply_markup=kb)
+    await safe_edit(call, text, reply_markup=kb)
 
 
 # =========================
@@ -656,7 +691,7 @@ async def cb_language(call: CallbackQuery):
         lang = "zh"
 
     await set_user_lang(call.from_user.id, lang)
-    await call.message.edit_text(t(lang, f"language_updated_{lang}"))
+    await safe_edit(call, t(lang, f"language_updated_{lang}"))
     await call.message.answer(t(lang, "choose_action"), reply_markup=main_menu(lang))
     await call.answer()
 
@@ -930,6 +965,7 @@ async def cmd_seed(message: Message):
     await seed_sample_data()
     await message.answer(t(lang, "seed_done"))
 
+
 @dp.message(Command("addcategory"))
 async def cmd_addcategory(message: Message):
     await get_or_create_user_from_tg(message.from_user)
@@ -941,10 +977,12 @@ async def cmd_addcategory(message: Message):
     try:
         raw = message.text.replace("/addcategory", "", 1).strip()
         name_en, name_zh = [x.strip() for x in raw.split("|", 1)]
+
         await add_category(name_en, name_zh)
         await message.answer(t(lang, "category_added"))
     except Exception:
         await message.answer(t(lang, "bad_addcategory"))
+
 
 @dp.message(Command("addservice"))
 async def cmd_addservice(message: Message):
@@ -982,10 +1020,13 @@ async def cmd_feature(message: Message):
     try:
         raw = message.text.replace("/feature", "", 1).strip()
         service_id, val = [x.strip() for x in raw.split("|", 1)]
-        await set_featured(int(service_id), val == "1")
+        featured = val == "1"
+
+        await set_featured(int(service_id), featured)
         await message.answer(t(lang, "feature_updated"))
     except Exception:
         await message.answer(t(lang, "bad_feature"))
+
 
 @dp.message(Command("setbalance"))
 async def cmd_setbalance(message: Message):
@@ -998,10 +1039,12 @@ async def cmd_setbalance(message: Message):
     try:
         raw = message.text.replace("/setbalance", "", 1).strip()
         tg_id, amount = [x.strip() for x in raw.split("|", 1)]
+
         await set_balance(int(tg_id), float(amount))
         await message.answer(t(lang, "balance_updated"))
     except Exception:
         await message.answer(t(lang, "bad_setbalance"))
+
 
 @dp.message(Command("promo"))
 async def cmd_promo(message: Message):
@@ -1018,6 +1061,7 @@ async def cmd_promo(message: Message):
     await set_promo_text(promo_text)
     await message.answer(t(lang, "promo_updated"))
 
+
 @dp.message(Command("services"))
 async def cmd_services(message: Message):
     await get_or_create_user_from_tg(message.from_user)
@@ -1027,6 +1071,7 @@ async def cmd_services(message: Message):
         return await message.answer(t(lang, "admin_only"))
 
     rows = await list_services_admin()
+
     if not rows:
         return await message.answer(t(lang, "services_empty"))
 
@@ -1043,7 +1088,8 @@ async def cmd_services(message: Message):
         )
 
     await message.answer(text)
-    
+
+
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: Message):
     await get_or_create_user_from_tg(message.from_user)
@@ -1064,22 +1110,22 @@ async def cmd_broadcast(message: Message):
         try:
             await bot.send_message(uid, content)
             ok += 1
-            await asyncio.sleep(0.08)
+            await asyncio.sleep(0.05)
         except Exception:
             fail += 1
 
     await message.answer(t(lang, "broadcast_done", ok=ok, fail=fail))
 
+
 # =========================
 # STARTUP
 # =========================
+
 async def main():
     await init_db()
     await bot.delete_webhook(drop_pending_updates=True)
     print("Bot is running...")
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
-    asyncio.run(main())
 if __name__ == "__main__":
     asyncio.run(main())
