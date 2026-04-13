@@ -1,11 +1,8 @@
-# =========================
-# FULL TELEGRAM BOT (ORDER SYSTEM + ADMIN CONFIRM + MULTI PRODUCT)
-# =========================
-
 import asyncio
 import os
 import logging
 import random
+import uuid
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -14,36 +11,38 @@ from aiogram.types import (
 )
 import asyncpg
 
+# =========================
+# ENV
+# =========================
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 DATABASE_URL = os.getenv("DATABASE_URL")
-TENANT_ID = os.getenv("TENANT_ID", "default")
+
+logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 db_pool = None
 
 # =========================
-# DB INIT
+# DB
 # =========================
 async def init_db():
     global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
 
     async with db_pool.acquire() as conn:
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id SERIAL PRIMARY KEY,
             user_id BIGINT,
-            tenant_id TEXT,
             product_type TEXT,
             product_id TEXT,
             amount NUMERIC,
             status TEXT DEFAULT 'pending',
             delivered BOOLEAN DEFAULT FALSE,
+            tx_hash TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
         """)
@@ -51,7 +50,6 @@ async def init_db():
 # =========================
 # MENU
 # =========================
-# ================= MENU =================
 def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -64,45 +62,23 @@ def main_menu():
         resize_keyboard=True
     )
 
-# ================= START =================
+# =========================
+# START
+# =========================
 @dp.message(F.text == "/start")
 async def start(msg: Message):
     await msg.answer("🚀 Bot Ready", reply_markup=main_menu())
 
-
-# ================= HANDLERS =================
-@dp.message(F.text == "👑 Numbers")
-async def numbers(msg: Message):
-    await msg.answer("👑 Numbers OK")
-
-@dp.message(F.text == "🔥📦 Rent 888 (HOT)")
-async def rent(msg: Message):
-    await msg.answer("🔥 888 OK")
-
-@dp.message(F.text == "⭐ Stars")
-async def stars(msg: Message):
-    await msg.answer("⭐ Stars OK")
-
-@dp.message(F.text == "💎 Premium")
-async def premium(msg: Message):
-    await msg.answer("💎 Premium OK")
-
-@dp.message(F.text == "🎁 Gifts")
-async def gifts(msg: Message):
-    await msg.answer("🎁 Gifts OK")
-
-@dp.message(F.text == "🌐 Language")
-async def lang(msg: Message):
-    await msg.answer("🌐 Language OK")
-
+# =========================
+# ORDER CORE
 # =========================
 async def create_order(user_id, product_type, product_id, amount):
     async with db_pool.acquire() as conn:
         order = await conn.fetchrow("""
-            INSERT INTO orders (user_id, tenant_id, product_type, product_id, amount)
-            VALUES ($1,$2,$3,$4,$5)
+            INSERT INTO orders (user_id, product_type, product_id, amount)
+            VALUES ($1,$2,$3,$4)
             RETURNING *
-        """, user_id, TENANT_ID, product_type, product_id, amount)
+        """, user_id, product_type, product_id, amount)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -113,99 +89,73 @@ async def create_order(user_id, product_type, product_id, amount):
 
     await bot.send_message(
         ADMIN_ID,
-        f"""
-🆕 NEW ORDER
-
-👤 {user_id}
-📦 {product_type}
-📱 {product_id}
-💰 {amount}U
-
-ID: #{order['id']}
-""",
+        f"🆕 ORDER #{order['id']}\n{product_type}\n{product_id}\n{amount}U",
         reply_markup=kb
     )
 
+    await bot.send_message(user_id, f"🧾 Order #{order['id']} created\n⏳ Waiting admin")
     return order
 
 # =========================
-# RENT 888 (FOMO + REAL)
+# RENT 888
 # =========================
 RENT_NUMBERS = [
     "+888 0469 5721",
     "+888 0743 9525",
-    "+888 0854 6327",
+    "+888 0854 6327"
 ]
 
-@dp.message(F.text == "👑  Rent 888 (HOT)")
+@dp.message(F.text == "🔥📦 Rent 888 (HOT)")
 async def rent_menu(msg: Message):
     stock = random.randint(1,5)
-    await msg.answer(f"""
-🔥 HOT 888 RENT
-
-⏳ Stock: {stock}
-⚠️ Selling fast
-
-💰 1 Month = 99U
-💰 3 Months = 268U
-""")
+    await msg.answer(f"🔥 HOT\n⏳ Stock: {stock}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"👑  {n}", callback_data=f"rent:{i}")]
-        for i,n in enumerate(RENT_NUMBERS)
+        [InlineKeyboardButton(text=f"🔥 {n}", callback_data=f"rent:{n}")]
+        for n in RENT_NUMBERS
     ])
 
     await msg.answer("👇 Select number", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("rent:"))
 async def rent_select(call: CallbackQuery):
-    i = int(call.data.split(":")[1])
-    phone = RENT_NUMBERS[i]
+    phone = call.data.split(":")[1]
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🔥 1M 99U", callback_data=f"rent_buy:{phone}:99"),
-            InlineKeyboardButton(text="💎 3M 268U", callback_data=f"rent_buy:{phone}:268")
+            InlineKeyboardButton(text="1M 99U", callback_data=f"buy:{phone}:99"),
+            InlineKeyboardButton(text="3M 268U", callback_data=f"buy:{phone}:268")
         ]
     ])
 
-    await call.message.answer(f"📱 {phone}\nChoose plan:", reply_markup=kb)
-    await call.answer()
-
-@dp.callback_query(F.data.startswith("rent_buy:"))
-async def rent_buy(call: CallbackQuery):
-    _, phone, price = call.data.split(":")
-
-    order = await create_order(call.from_user.id, "rent", phone, int(price))
-
-    await call.message.answer(f"🧾 Order #{order['id']} created\n⏳ Waiting admin")
+    await call.message.answer(f"📱 {phone}", reply_markup=kb)
     await call.answer()
 
 # =========================
-# PREMIUM
+# BUY
 # =========================
-@dp.message(F.text.contains("Premium"))
-async def premium_menu(msg: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="3M 15U", callback_data="pre:3")],
-        [InlineKeyboardButton(text="6M 20U", callback_data="pre:6")],
-        [InlineKeyboardButton(text="12M 36U", callback_data="pre:12")]
-    ])
+user_lock = {}
 
-    await msg.answer("💎 Premium Plans", reply_markup=kb)
+@dp.callback_query(F.data.startswith("buy:"))
+async def buy(call: CallbackQuery):
+    uid = call.from_user.id
 
-@dp.callback_query(F.data.startswith("pre:"))
-async def buy_pre(call: CallbackQuery):
-    m = call.data.split(":")[1]
-    price = {"3":15,"6":20,"12":36}[m]
+    if user_lock.get(uid):
+        await call.answer("⏳ Wait...", show_alert=True)
+        return
 
-    order = await create_order(call.from_user.id, "premium", m, price)
+    user_lock[uid] = True
 
-    await call.message.answer(f"🧾 Order #{order['id']} created")
+    try:
+        _, phone, price = call.data.split(":")
+        await create_order(uid, "rent", phone, int(price))
+    finally:
+        user_lock[uid] = False
+
     await call.answer()
 
 # =========================
-# ADMIN CONFIRM
+# ADMIN
 # =========================
 @dp.callback_query(F.data.startswith("admin_confirm:"))
 async def confirm(call: CallbackQuery):
@@ -214,30 +164,12 @@ async def confirm(call: CallbackQuery):
     async with db_pool.acquire() as conn:
         order = await conn.fetchrow("""
             UPDATE orders SET status='done', delivered=TRUE
-            WHERE id=$1 RETURNING *
+            WHERE id=$1 AND delivered=FALSE
+            RETURNING *
         """, oid)
 
-    await bot.send_message(order["user_id"], f"✅ Delivered: {order['product_id']}")
-    await call.message.answer("✅ Done")
-    await call.answer()
+    if not order:
+        await call.answer("Already processed", show_alert=True)
+        return
 
-@dp.callback_query(F.data.startswith("admin_reject:"))
-async def reject(call: CallbackQuery):
-    oid = int(call.data.split(":")[1])
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("UPDATE orders SET status='cancel' WHERE id=$1", oid)
-
-    await call.message.answer("❌ Rejected")
-    await call.answer()
-await bot.delete_webhook(drop_pending_updates=True)
-
-# =========================
-# RUN
-# =========================
-async def main():
-    await init_db()
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    await bot.send_message
