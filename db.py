@@ -25,14 +25,22 @@ DEFAULT_PROMOS = {
     )
 }
 
-
 async def init_db():
     global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
-    print("DB connected")
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
+    while True:
+        try:
+            db_pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=1,
+                max_size=5,
+                max_inactive_connection_lifetime=30
+            )
+            print("✅ DB Connected")
+            break
+        except Exception as e:
+            print("❌ DB FAIL, retry...", e)
+            await asyncio.sleep(5)
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             telegram_id BIGINT UNIQUE NOT NULL,
