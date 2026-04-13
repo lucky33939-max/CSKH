@@ -5,7 +5,33 @@ import asyncpg
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import (
+from db import (
+    init_db,
+    close_db,
+    get_or_create_user_from_tg,
+    get_user_lang,
+    set_user_lang,
+    get_promo_text,
+    list_categories,
+    get_category,
+    list_featured_services,
+    list_services_by_category,
+    get_service,
+    create_order,
+    user_orders,
+    user_orders_count,
+    get_user_invoices,
+    get_invoice_by_order_id,
+    all_user_ids,
+    seed_sample_data,
+    add_category,
+    add_service,
+    set_featured,
+    set_balance,
+    set_promo_text,
+    list_services_admin,
+)
+
     Message,
     CallbackQuery,
     ReplyKeyboardMarkup,
@@ -1176,58 +1202,8 @@ async def cmd_seed(message: Message):
     if not is_admin(message.from_user.id):
         return await message.answer(t(lang, "admin_only"))
 
-    async with db_pool.acquire() as conn:
-        count = await conn.fetchrow("SELECT COUNT(*) AS total FROM categories")
-        if int(count["total"]) == 0:
-            await conn.execute("""
-                INSERT INTO categories (name_en, name_zh, sort_order) VALUES
-                ('Bot Rental', '机器人租用', 1),
-                ('Custom Bot', '定制机器人', 2),
-                ('Group/Channel Setup', '群组/频道搭建', 3),
-                ('Telegram Automation', 'Telegram 自动化', 4),
-                ('Premium Gifts', '高级礼品', 5)
-            """)
-
-        svc_count = await conn.fetchrow("SELECT COUNT(*) AS total FROM services")
-        if int(svc_count["total"]) == 0:
-            await conn.execute("""
-                INSERT INTO services
-                (category_id, title, price, badge, desc_en, desc_zh, featured)
-                VALUES
-                (
-                    1, 'Monthly Bot Rental', 49, 'HOT',
-                    'Monthly rental bot package for sales, customer support and Telegram marketing.',
-                    '月租机器人套餐，适合销售、客服和 Telegram 营销。',
-                    TRUE
-                ),
-                (
-                    2, 'Custom Bot Development', 129, 'PREMIUM',
-                    'Custom Telegram bot development based on your business needs.',
-                    '根据您的业务需求定制开发 Telegram 机器人。',
-                    TRUE
-                ),
-                (
-                    3, 'Group/Channel Setup Pro', 39, 'POPULAR',
-                    'Professional setup for group/channel with menu, rules, welcome flow and optimization.',
-                    '专业搭建群组/频道，包含菜单、规则、欢迎流程和优化。',
-                    TRUE
-                ),
-                (
-                    4, 'Automation Package', 79, 'AUTO',
-                    'Legal Telegram automation: replies, forms, routing, mini CRM.',
-                    '合法 Telegram 自动化：回复、表单、分流、迷你 CRM。',
-                    FALSE
-                ),
-                (
-                    5, 'Premium Gift Assistance', 25, 'GIFT',
-                    'Support and consultation for valid premium gift related services.',
-                    '提供合法高级礼品相关服务的支持与咨询。',
-                    FALSE
-                )
-            """)
-
+    await seed_sample_data()
     await message.answer(t(lang, "seed_done"))
-
 
 @dp.message(Command("addcategory"))
 async def cmd_addcategory(message: Message):
@@ -1240,17 +1216,10 @@ async def cmd_addcategory(message: Message):
     try:
         raw = message.text.replace("/addcategory", "", 1).strip()
         name_en, name_zh = [x.strip() for x in raw.split("|", 1)]
-
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO categories (name_en, name_zh)
-                VALUES ($1, $2)
-            """, name_en, name_zh)
-
+        await add_category(name_en, name_zh)
         await message.answer(t(lang, "category_added"))
     except Exception:
         await message.answer(t(lang, "bad_addcategory"))
-
 
 @dp.message(Command("addservice"))
 async def cmd_addservice(message: Message):
@@ -1271,13 +1240,7 @@ async def cmd_addservice(message: Message):
         desc_en = parts[4]
         desc_zh = parts[5]
 
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO services
-                (category_id, title, price, badge, desc_en, desc_zh)
-                VALUES ($1, $2, $3, $4, $5, $6)
-            """, category_id, title, price, badge, desc_en, desc_zh)
-
+        await add_service(category_id, title, price, badge, desc_en, desc_zh)
         await message.answer(t(lang, "service_added"))
     except Exception:
         await message.answer(t(lang, "bad_addservice"))
@@ -1294,19 +1257,10 @@ async def cmd_feature(message: Message):
     try:
         raw = message.text.replace("/feature", "", 1).strip()
         service_id, val = [x.strip() for x in raw.split("|", 1)]
-        featured = val == "1"
-
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE services
-                SET featured = $1
-                WHERE id = $2
-            """, featured, int(service_id))
-
+        await set_featured(int(service_id), val == "1")
         await message.answer(t(lang, "feature_updated"))
     except Exception:
         await message.answer(t(lang, "bad_feature"))
-
 
 @dp.message(Command("setbalance"))
 async def cmd_setbalance(message: Message):
@@ -1319,27 +1273,10 @@ async def cmd_setbalance(message: Message):
     try:
         raw = message.text.replace("/setbalance", "", 1).strip()
         tg_id, amount = [x.strip() for x in raw.split("|", 1)]
-
-        async with db_pool.acquire() as conn:
-            user = await conn.fetchrow(
-                "SELECT * FROM users WHERE telegram_id = $1",
-                int(tg_id)
-            )
-
-            if user:
-                await conn.execute("""
-                    UPDATE users SET balance = $1 WHERE telegram_id = $2
-                """, float(amount), int(tg_id))
-            else:
-                await conn.execute("""
-                    INSERT INTO users (telegram_id, username, full_name, balance, language)
-                    VALUES ($1, '', '', $2, 'zh')
-                """, int(tg_id), float(amount))
-
+        await set_balance(int(tg_id), float(amount))
         await message.answer(t(lang, "balance_updated"))
     except Exception:
         await message.answer(t(lang, "bad_setbalance"))
-
 
 @dp.message(Command("promo"))
 async def cmd_promo(message: Message):
@@ -1353,16 +1290,8 @@ async def cmd_promo(message: Message):
     if not promo_text:
         promo_text = t(lang, "default_promo")
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO settings (key, value)
-            VALUES ('promo_text', $1)
-            ON CONFLICT (key)
-            DO UPDATE SET value = EXCLUDED.value
-        """, promo_text)
-
+    await set_promo_text(promo_text)
     await message.answer(t(lang, "promo_updated"))
-
 
 @dp.message(Command("services"))
 async def cmd_services(message: Message):
@@ -1372,13 +1301,7 @@ async def cmd_services(message: Message):
     if not is_admin(message.from_user.id):
         return await message.answer(t(lang, "admin_only"))
 
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT id, category_id, title, price, featured
-            FROM services
-            ORDER BY id ASC
-        """)
-
+    rows = await list_services_admin()
     if not rows:
         return await message.answer(t(lang, "services_empty"))
 
@@ -1395,8 +1318,7 @@ async def cmd_services(message: Message):
         )
 
     await message.answer(text)
-
-
+    
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: Message):
     await get_or_create_user_from_tg(message.from_user)
@@ -1427,14 +1349,12 @@ async def cmd_broadcast(message: Message):
 # STARTUP
 # =========================
 async def main():
-    global db_pool
     await init_db()
     print("Bot is running...")
     try:
         await dp.start_polling(bot)
     finally:
-        if db_pool:
-            await db_pool.close()
+        await close_db()
         await bot.session.close()
 
 if __name__ == "__main__":
