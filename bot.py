@@ -1098,7 +1098,6 @@ async def cb_topup(call: CallbackQuery, state: FSMContext):
 
     await call.answer()
 
-
 @dp.message(AmountFSM.waiting_custom_topup)
 async def custom_topup_amount(message: Message, state: FSMContext):
     lang = await get_user_lang(message.from_user.id)
@@ -1122,28 +1121,29 @@ async def custom_topup_amount(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-  if ADMIN_ID:
-    try:
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
-            ]
-        )
-        await bot.send_message(
-            ADMIN_ID,
-            t(
-                lang,
-                "admin_purchase_notice",
-                name=call.from_user.full_name,
-                user_id=call.from_user.id,
-                item=row["item_title"],
-                amount=float(row["amount"]),
-                invoice_id=row["id"]
-            ),
-            reply_markup=kb
-        )
-    except Exception as e:
-        print("send admin purchase notice error:", e)
+      if ADMIN_ID:
+        try:
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
+                ]
+            )
+            await bot.send_message(
+                ADMIN_ID,
+                t(
+                    lang,
+                    "admin_purchase_notice",
+                    name=call.from_user.full_name,
+                    user_id=call.from_user.id,
+                    item=row["item_title"],
+                    amount=float(row["amount"]),
+                    invoice_id=row["id"]
+                ),
+                reply_markup=kb
+            )
+        except Exception as e:
+            print("send admin purchase notice error:", e)
+
 
 
 
