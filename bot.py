@@ -1236,7 +1236,7 @@ async def custom_purchase_amount(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-   if ADMIN_ID:
+      if ADMIN_ID:
     try:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
