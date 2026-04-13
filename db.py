@@ -95,8 +95,27 @@ async def init_db():
             SET language = 'zh'
             WHERE language IS NULL OR language = 'vi'
         """)
-
-
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id BIGINT;")
+await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;")
+await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;")
+await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'zh';")
+await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS balance NUMERIC(12,2) NOT NULL DEFAULT 0;")
+await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS total_spent NUMERIC(12,2) NOT NULL DEFAULT 0;")
+await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
+await conn.execute("""
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'users_telegram_id_key'
+    ) THEN
+        ALTER TABLE users
+        ADD CONSTRAINT users_telegram_id_key UNIQUE (telegram_id);
+    END IF;
+END
+$$;
+""")
 async def close_db():
     global db_pool
     if db_pool:
