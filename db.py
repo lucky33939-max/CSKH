@@ -29,6 +29,9 @@ async def init_db():
     db_pool = await asyncpg.create_pool(DATABASE_URL)
 
     async with db_pool.acquire() as conn:
+        # =========================
+        # CREATE TABLES
+        # =========================
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -85,37 +88,73 @@ async def init_db():
         );
         """)
 
-        # Safe migrations
+        # =========================
+        # SAFE MIGRATIONS - USERS
+        # =========================
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id BIGINT;")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'zh';")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS balance NUMERIC(12,2) NOT NULL DEFAULT 0;")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS total_spent NUMERIC(12,2) NOT NULL DEFAULT 0;")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
 
+        # unique constraint for telegram_id
+        await conn.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'users_telegram_id_key'
+            ) THEN
+                ALTER TABLE users
+                ADD CONSTRAINT users_telegram_id_key UNIQUE (telegram_id);
+            END IF;
+        END
+        $$;
+        """)
+
+        # =========================
+        # SAFE MIGRATIONS - CATEGORIES
+        # =========================
+        await conn.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS name_en TEXT DEFAULT '';")
+        await conn.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS name_zh TEXT DEFAULT '';")
+        await conn.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;")
+        await conn.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;")
+
+        # =========================
+        # SAFE MIGRATIONS - SERVICES
+        # =========================
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS category_id INTEGER;")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS title TEXT DEFAULT '';")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS price NUMERIC(12,2) NOT NULL DEFAULT 0;")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS badge TEXT DEFAULT 'POPULAR';")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS desc_en TEXT DEFAULT '';")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS desc_zh TEXT DEFAULT '';")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS featured BOOLEAN DEFAULT FALSE;")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;")
+        await conn.execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
+
+        # =========================
+        # SAFE MIGRATIONS - ORDERS
+        # =========================
+        await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS telegram_id BIGINT;")
+        await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_id INTEGER;")
+        await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS price NUMERIC(12,2) NOT NULL DEFAULT 0;")
+        await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'paid';")
+        await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
+
+        # =========================
+        # FIX OLD LANGUAGE VALUES
+        # =========================
         await conn.execute("""
             UPDATE users
             SET language = 'zh'
             WHERE language IS NULL OR language = 'vi'
         """)
-        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id BIGINT;")
-await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;")
-await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;")
-await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'zh';")
-await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS balance NUMERIC(12,2) NOT NULL DEFAULT 0;")
-await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS total_spent NUMERIC(12,2) NOT NULL DEFAULT 0;")
-await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
-await conn.execute("""
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'users_telegram_id_key'
-    ) THEN
-        ALTER TABLE users
-        ADD CONSTRAINT users_telegram_id_key UNIQUE (telegram_id);
-    END IF;
-END
-$$;
-""")
+
+
 async def close_db():
     global db_pool
     if db_pool:
@@ -125,19 +164,21 @@ async def close_db():
 
 async def get_or_create_user_from_tg(tg_user):
     async with db_pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO users (telegram_id, username, full_name, language)
-            VALUES ($1, $2, $3, 'zh')
-            ON CONFLICT (telegram_id)
-            DO UPDATE SET
-                username = EXCLUDED.username,
-                full_name = EXCLUDED.full_name
-        """, tg_user.id, tg_user.username, tg_user.full_name)
-
-        return await conn.fetchrow(
+        user = await conn.fetchrow(
             "SELECT * FROM users WHERE telegram_id = $1",
             tg_user.id
         )
+
+        if not user:
+            await conn.execute("""
+                INSERT INTO users (telegram_id, username, full_name, language)
+                VALUES ($1, $2, $3, 'zh')
+            """, tg_user.id, tg_user.username, tg_user.full_name)
+
+            user = await conn.fetchrow(
+                "SELECT * FROM users WHERE telegram_id = $1",
+                tg_user.id
+            )
 
         return user
 
@@ -310,7 +351,7 @@ async def get_invoice_by_order_id(order_id: int, tg_id: int):
 
 async def all_user_ids():
     async with db_pool.acquire() as conn:
-        rows = await conn.fetch("SELECT telegram_id FROM users")
+        rows = await conn.fetch("SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL")
         return [r["telegram_id"] for r in rows]
 
 
@@ -433,22 +474,3 @@ async def list_services_admin():
             FROM services
             ORDER BY id ASC
         """)
-async def init_db():
-    global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
-    print("DB connected")
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT UNIQUE NOT NULL,
-            username TEXT,
-            full_name TEXT,
-            language TEXT DEFAULT 'zh',
-            balance NUMERIC(12,2) NOT NULL DEFAULT 0,
-            total_spent NUMERIC(12,2) NOT NULL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        """)
-        print("users table ready")
