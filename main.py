@@ -132,11 +132,11 @@ async def buy(call: CallbackQuery):
         _, product, price = call.data.split(":")
 
         async with DB.pool.acquire() as conn:
-            order = await conn.fetchrow("""
-                INSERT INTO orders (user_id, product_type, amount)
-                VALUES ($1,$2,$3)
-                RETURNING *
-            """, uid, product, int(price))
+           order = await conn.fetchrow("""
+    INSERT INTO orders (user_id, product_type, product_id, amount)
+    VALUES ($1,$2,$3,$4)
+    RETURNING *
+""", user_id, product, item, amount)
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
