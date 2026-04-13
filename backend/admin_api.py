@@ -93,3 +93,7 @@ async def confirm(order_id: int, user=Depends(verify)):
 async def reject(order_id: int, user=Depends(verify)):
     await execute("UPDATE orders SET status='cancel' WHERE id=$1", order_id)
     return {"ok": True}
+    
+@app.get("/")
+async def root():
+    return {"status": "ok"}
