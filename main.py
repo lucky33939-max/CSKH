@@ -246,7 +246,14 @@ async def reject(call: CallbackQuery):
 @dp.message(F.text)
 async def fallback(msg: Message):
     await msg.answer("❌ Unknown command")
+# =========================
 
+# CATCH ALL (FIX LOG)
+# =========================
+@dp.message()
+async def catch_all(msg: Message):
+    pass
+    
 # =========================
 # MAIN
 # =========================
