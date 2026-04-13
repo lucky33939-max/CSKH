@@ -1074,27 +1074,28 @@ async def cb_topup(call: CallbackQuery, state: FSMContext):
         parse_mode="HTML"
     )
 
-    if ADMIN_ID:
+   if ADMIN_ID:
+    try:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "btn_confirm_topup"), callback_data=f"admin_confirm_topup:{row['id']}")]
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
             ]
         )
         await bot.send_message(
             ADMIN_ID,
             t(
                 lang,
-                "admin_topup_notice",
+                "admin_purchase_notice",
                 name=call.from_user.full_name,
                 user_id=call.from_user.id,
+                item=row["item_title"],
                 amount=float(row["amount"]),
                 invoice_id=row["id"]
             ),
             reply_markup=kb
         )
-
-    await call.answer()
-
+    except Exception as e:
+        print("send admin purchase notice error:", e)
 
 @dp.message(AmountFSM.waiting_custom_topup)
 async def custom_topup_amount(message: Message, state: FSMContext):
@@ -1119,26 +1120,29 @@ async def custom_topup_amount(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-    if ADMIN_ID:
+  if ADMIN_ID:
+    try:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "btn_confirm_topup"), callback_data=f"admin_confirm_topup:{row['id']}")]
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
             ]
         )
         await bot.send_message(
             ADMIN_ID,
             t(
                 lang,
-                "admin_topup_notice",
-                name=message.from_user.full_name,
-                user_id=message.from_user.id,
+                "admin_purchase_notice",
+                name=call.from_user.full_name,
+                user_id=call.from_user.id,
+                item=row["item_title"],
                 amount=float(row["amount"]),
                 invoice_id=row["id"]
             ),
             reply_markup=kb
         )
+    except Exception as e:
+        print("send admin purchase notice error:", e)
 
-    await state.clear()
 
 
 @dp.callback_query(F.data.startswith("item:"))
@@ -1185,27 +1189,28 @@ async def cb_buy_amount(call: CallbackQuery):
         parse_mode="HTML"
     )
 
-  if ADMIN_ID:
+ if ADMIN_ID:
     try:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "btn_confirm_topup"), callback_data=f"admin_confirm_topup:{row['id']}")]
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
             ]
         )
         await bot.send_message(
             ADMIN_ID,
             t(
                 lang,
-                "admin_topup_notice",
+                "admin_purchase_notice",
                 name=call.from_user.full_name,
                 user_id=call.from_user.id,
+                item=row["item_title"],
                 amount=float(row["amount"]),
                 invoice_id=row["id"]
             ),
             reply_markup=kb
         )
     except Exception as e:
-        print("send admin topup notice error:", e)
+        print("send admin purchase notice error:", e)
 
 
 @dp.callback_query(F.data.startswith("buyamtcustom:"))
@@ -1253,27 +1258,29 @@ async def custom_purchase_amount(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-    if ADMIN_ID:
+   if ADMIN_ID:
     try:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text=t(lang, "btn_confirm_topup"), callback_data=f"admin_confirm_topup:{row['id']}")]
+                [InlineKeyboardButton(text=t(lang, "btn_confirm_purchase"), callback_data=f"admin_confirm_purchase:{row['id']}")]
             ]
         )
         await bot.send_message(
             ADMIN_ID,
             t(
                 lang,
-                "admin_topup_notice",
+                "admin_purchase_notice",
                 name=call.from_user.full_name,
                 user_id=call.from_user.id,
+                item=row["item_title"],
                 amount=float(row["amount"]),
                 invoice_id=row["id"]
             ),
             reply_markup=kb
         )
     except Exception as e:
-        print("send admin topup notice error:", e)
+        print("send admin purchase notice error:", e)
+
 
 
 @dp.callback_query(F.data == "invoice_list")
