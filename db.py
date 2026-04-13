@@ -8,7 +8,7 @@ db_pool = None
 
 
 # =========================
-# CONNECT DB (AUTO RETRY)
+# CONNECT DB (AUTO RETRY + CREATE TABLE)
 # =========================
 async def init_db():
     global db_pool
@@ -21,8 +21,28 @@ async def init_db():
                 max_size=5,
                 max_inactive_connection_lifetime=30,
             )
+
             print("✅ DB Connected")
+
+            # 👉 tạo table luôn (QUAN TRỌNG)
+            async with db_pool.acquire() as conn:
+                await conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    product_type TEXT,
+                    product_id TEXT,
+                    amount NUMERIC,
+                    status TEXT DEFAULT 'pending',
+                    delivered BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+                """)
+
+            print("✅ Table ready")
+
             break
+
         except Exception as e:
             print("❌ DB FAIL, retry...", e)
             await asyncio.sleep(5)
