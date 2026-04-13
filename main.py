@@ -10,6 +10,7 @@ from aiogram.types import (
 )
 import asyncpg
 load_dotenv()
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -21,31 +22,30 @@ dp = Dispatcher()
 db_pool = None
 
 # =========================
-# DB AUTO RECONNECT
+# DB
 # =========================
-async def init_db():
-    global db_pool  # 👈 PHẢI Ở DÒNG ĐẦU
+class DB:
+    pool = None
 
+async def init_db():
     while True:
         try:
-            db_pool = await asyncpg.create_pool(
+            DB.pool = await asyncpg.create_pool(
                 DATABASE_URL,
                 min_size=1,
                 max_size=5,
                 max_inactive_connection_lifetime=30
             )
-
             print("✅ DB Connected")
             break
-
         except Exception as e:
             print("❌ DB FAIL:", e)
             await asyncio.sleep(5)
-            
+
 # =========================
 # KEEP DB ALIVE
 # =========================
-aasync def keep_db_alive():
+async def keep_db_alive():
     while True:
         try:
             async with DB.pool.acquire() as conn:
@@ -57,50 +57,6 @@ aasync def keep_db_alive():
             await init_db()
 
         await asyncio.sleep(20)
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-logging.basicConfig(level=logging.INFO)
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-db_pool = None
-
-# =========================
-# DB AUTO RECONNECT
-# =========================
-async def init_db():
-    global db_pool
-
-    while True:
-        try:
-            db_pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=1,
-                max_size=5,
-                max_inactive_connection_lifetime=30
-            )
-            print("✅ DB Connected")
-            break
-        except Exception as e:
-            print("❌ DB FAIL, retry...", e)
-            await asyncio.sleep(5)
-
-# =========================
-# KEEP DB ALIVE
-# =========================
-async def keep_db_alive():
-    while True:
-        try:
-            async with db_pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-            print("💓 DB alive")
-        except Exception as e:
-            print("DB reconnecting...", e)
-            await init_db()
-
-        await asyncio.sleep(20) # 👈 BẮT BUỘC
 # =========================
 # MENU
 # =========================
