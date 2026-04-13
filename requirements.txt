@@ -2,4 +2,4 @@ fastapi
 uvicorn
 aiogram
 asyncpg
-python-dotenv   ✅ PHẢI CÓ DÒNG NÀY
+python-dotenv
