@@ -93,10 +93,14 @@ async def get_user(user_id):
             user_id, TENANT_ID
         )
         if not user:
-            await conn.execute(
-                "INSERT INTO users (telegram_id, tenant_id) VALUES ($1,$2)",
-                user_id, TENANT_ID
-            )
+           await conn.execute(
+    """
+    INSERT INTO users (telegram_id, tenant_id)
+    VALUES ($1, $2)
+    ON CONFLICT (tenant_id, telegram_id) DO NOTHING
+    """,
+    user_id, TENANT_ID
+)
             user = await conn.fetchrow(
                 "SELECT * FROM users WHERE telegram_id=$1 AND tenant_id=$2",
                 user_id, TENANT_ID
