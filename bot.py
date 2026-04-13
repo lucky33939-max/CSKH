@@ -1,10 +1,20 @@
 import os
 import asyncio
+
 from dotenv import load_dotenv
-import asyncpg
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 from db import (
     init_db,
     close_db,
@@ -31,15 +41,6 @@ from db import (
     set_promo_text,
     list_services_admin,
 )
-
-    Message,
-    CallbackQuery,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 load_dotenv()
 
