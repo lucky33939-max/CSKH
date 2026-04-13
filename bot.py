@@ -498,10 +498,20 @@ async def init_db():
 
 async def get_or_create_user_from_tg(tg_user):
     async with db_pool.acquire() as conn:
-        user = await conn.fetchrow(
+        await conn.execute("""
+            INSERT INTO users (telegram_id, username, full_name, language)
+            VALUES ($1, $2, $3, 'zh')
+            ON CONFLICT (telegram_id)
+            DO UPDATE SET
+                username = EXCLUDED.username,
+                full_name = EXCLUDED.full_name
+        """, tg_user.id, tg_user.username, tg_user.full_name)
+
+        return await conn.fetchrow(
             "SELECT * FROM users WHERE telegram_id = $1",
             tg_user.id
         )
+
         if not user:
             await conn.execute("""
                 INSERT INTO users (telegram_id, username, full_name, language)
