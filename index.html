@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+</head>
+<body>
+
+<h2>🧾 Orders</h2>
+<div id="orders"></div>
+
+<script>
+async function loadOrders() {
+    const res = await fetch("http://localhost:8000/orders");
+    const data = await res.json();
+
+    let html = "";
+
+    data.forEach(o => {
+        html += `
+        <div style="border:1px solid #ccc; margin:10px; padding:10px;">
+            <b>#${o.id}</b> - ${o.product_type} - ${o.amount}U
+            <br>Status: ${o.status}
+            <br>
+            <button onclick="confirmOrder(${o.id})">✅ Confirm</button>
+            <button onclick="rejectOrder(${o.id})">❌ Reject</button>
+        </div>
+        `;
+    });
+
+    document.getElementById("orders").innerHTML = html;
+}
+
+async function confirmOrder(id) {
+    await fetch(`http://localhost:8000/confirm/${id}`, {method:"POST"});
+    loadOrders();
+}
+
+async function rejectOrder(id) {
+    await fetch(`http://localhost:8000/reject/${id}`, {method:"POST"});
+    loadOrders();
+}
+
+loadOrders();
+</script>
+
+</body>
+</html>
