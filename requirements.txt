@@ -2,6 +2,4 @@ fastapi
 uvicorn
 aiogram
 asyncpg
-python-dotenv
-
-# rebuild
+python-dotenv==1.0.1
