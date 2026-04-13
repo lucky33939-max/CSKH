@@ -6,7 +6,7 @@ import logging
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
-
+raise RuntimeError("BOT_NEW_0413")
 from aiogram import Bot, Dispatcher
 
 from config import BOT_TOKEN, DATABASE_URL
