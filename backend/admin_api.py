@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from db import fetch, fetchrow, execute
+from fastapi import Depends
 from aiogram import Bot
 import os
 
