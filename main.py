@@ -12,7 +12,6 @@ from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardMarkup, KeyboardButton, CallbackQuery
 )
-from db import init_db, keep_db_alive, execute, fetch, fetchrow
 import asyncpg
 
 # =========================
@@ -29,10 +28,6 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 db_pool = None
 
-# =========================
-# DB AUTO RECONNECT
-# =========================
-async def init_db():
     global db_pool
 
     while True:
@@ -200,11 +195,25 @@ async def keep_alive():
     while True:
         print("🚀 Running...")
         await asyncio.sleep(30)
+        
+# =========================
+# MAIN
+# =========================
+async def main():
+    print("🚀 BOT STARTING...")
+
+    await init_db()
+
+    asyncio.create_task(keep_db_alive())
+    asyncio.create_task(keep_alive())
+
+    await bot.delete_webhook(drop_pending_updates=True)
+
+    await dp.start_polling(bot)
+
 
 # =========================
-
+# RUN
+# =========================
 if __name__ == "__main__":
-    print("🚀 BOT STARTING...")
-    await init_db()
-asyncio.create_task(keep_db_alive())
     asyncio.run(main())
