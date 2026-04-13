@@ -76,9 +76,7 @@ async def get_product():
 # =========================
 def main_menu():
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🔥 Rent Number")],
-        ],
+        keyboard=[[KeyboardButton(text="🔥 Rent Number")]],
         resize_keyboard=True
     )
 
@@ -173,7 +171,8 @@ async def add_product(msg: Message):
     admin_state[msg.from_user.id] = True
     await msg.answer("Send numbers (each line = 1)")
 
-@dp.message()
+# ✅ FIX: chỉ bắt admin + text
+@dp.message(F.text)
 async def admin_input(msg: Message):
     if msg.from_user.id != ADMIN_ID:
         return
@@ -181,17 +180,14 @@ async def admin_input(msg: Message):
     if not admin_state.get(msg.from_user.id):
         return
 
-    # xử lý add product
-
-    lines = msg.text.split("\n")
+    lines = [l.strip() for l in msg.text.split("\n") if l.strip()]
 
     async with DB.pool.acquire() as conn:
         for line in lines:
-            if line.strip():
-                await conn.execute(
-                    "INSERT INTO products (type, value) VALUES ('rent', $1)",
-                    line.strip()
-                )
+            await conn.execute(
+                "INSERT INTO products (type, value) VALUES ('rent', $1)",
+                line
+            )
 
     admin_state[msg.from_user.id] = False
     await msg.answer(f"✅ Added {len(lines)} items")
@@ -245,9 +241,9 @@ async def reject(call: CallbackQuery):
     await call.answer("Rejected")
 
 # =========================
-# FALLBACK (FIX NOT HANDLED)
+# FALLBACK (FINAL FIX)
 # =========================
-@dp.message()
+@dp.message(F.text)
 async def fallback(msg: Message):
     await msg.answer("❌ Unknown command")
 
@@ -256,7 +252,6 @@ async def fallback(msg: Message):
 # =========================
 async def main():
     await init_db()
-
     asyncio.create_task(keep_db_alive())
 
     await bot.delete_webhook(drop_pending_updates=True)
