@@ -1076,11 +1076,9 @@ async def main():
     await init_db()
     await bot.delete_webhook(drop_pending_updates=True)
     print("Bot is running...")
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await close_db()
-        await bot.session.close()
+    await dp.start_polling(bot)
 
+if __name__ == "__main__":
+    asyncio.run(main())
 if __name__ == "__main__":
     asyncio.run(main())
