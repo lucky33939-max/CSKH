@@ -206,6 +206,7 @@ async def reject(call: CallbackQuery):
 
     await call.message.answer("❌ Rejected")
     await call.answer()
+await bot.delete_webhook(drop_pending_updates=True)
 
 # =========================
 # RUN
