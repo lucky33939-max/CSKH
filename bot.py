@@ -18,47 +18,55 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+if not BOT_TOKEN:
+    raise RuntimeError("Missing BOT_TOKEN")
+if not DATABASE_URL:
+    raise RuntimeError("Missing DATABASE_URL")
+
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # =========================
-# DB
+# DB (SAFE + AUTO RECOVER)
 # =========================
 class DB:
     pool = None
+    lock = asyncio.Lock()
 
 async def init_db():
-    while True:
-        try:
-            DB.pool = await asyncpg.create_pool(DATABASE_URL)
-            logging.info("DB connected")
-            break
-        except Exception as e:
-            logging.error(f"DB error: {e}")
-            await asyncio.sleep(5)
+    async with DB.lock:
+        if DB.pool:
+            return
 
-async def keep_db_alive():
-    while True:
-        try:
-            async with DB.pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-        except Exception:
-            await init_db()
-        await asyncio.sleep(60)
+        while True:
+            try:
+                DB.pool = await asyncpg.create_pool(DATABASE_URL)
+                logging.info("✅ DB connected")
+                break
+            except Exception as e:
+                logging.error(f"DB error: {e}")
+                await asyncio.sleep(3)
+
+async def get_conn():
+    if not DB.pool:
+        await init_db()
+    return DB.pool
 
 # =========================
 # UTIL
 # =========================
 async def get_stock():
-    async with DB.pool.acquire() as conn:
+    pool = await get_conn()
+    async with pool.acquire() as conn:
         return await conn.fetchval(
             "SELECT COUNT(*) FROM products WHERE is_sold=FALSE"
         )
 
 async def get_product():
-    async with DB.pool.acquire() as conn:
+    pool = await get_conn()
+    async with pool.acquire() as conn:
         return await conn.fetchrow("""
             UPDATE products
             SET is_sold=TRUE
@@ -114,29 +122,31 @@ async def rent(msg: Message):
     await msg.answer(f"🔥 Stock: {stock}", reply_markup=kb)
 
 # =========================
-# ORDER
+# ORDER SYSTEM (ANTI-SPAM)
 # =========================
-user_lock = {}
+user_lock = set()
 
 @dp.callback_query(F.data.startswith("buy:"))
 async def buy(call: CallbackQuery):
     uid = call.from_user.id
 
-    if user_lock.get(uid):
-        await call.answer("Wait...", show_alert=True)
+    if uid in user_lock:
+        await call.answer("⏳ Processing...", show_alert=True)
         return
 
-    user_lock[uid] = True
+    user_lock.add(uid)
 
     try:
         _, product, price = call.data.split(":")
 
-        async with DB.pool.acquire() as conn:
-           order = await conn.fetchrow("""
-    INSERT INTO orders (user_id, product_type, product_id, amount)
-    VALUES ($1,$2,$3,$4)
-    RETURNING *
-""", user_id, product, item, amount)
+        pool = await get_conn()
+
+        async with pool.acquire() as conn:
+            order = await conn.fetchrow("""
+                INSERT INTO orders (user_id, product_type, product_id, amount)
+                VALUES ($1,$2,$3,$4)
+                RETURNING *
+            """, uid, product, "auto", float(price))
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -149,7 +159,7 @@ async def buy(call: CallbackQuery):
         await call.message.answer("🧾 Order created")
 
     finally:
-        user_lock[uid] = False
+        user_lock.discard(uid)
 
     await call.answer()
 
@@ -171,18 +181,15 @@ async def add_product(msg: Message):
     admin_state[msg.from_user.id] = True
     await msg.answer("Send numbers (each line = 1)")
 
-# ✅ FIX: chỉ bắt admin + text
-@dp.message(F.text)
+@dp.message(F.text & F.from_user.id == ADMIN_ID)
 async def admin_input(msg: Message):
-    if msg.from_user.id != ADMIN_ID:
-        return
-
     if not admin_state.get(msg.from_user.id):
         return
 
     lines = [l.strip() for l in msg.text.split("\n") if l.strip()]
 
-    async with DB.pool.acquire() as conn:
+    pool = await get_conn()
+    async with pool.acquire() as conn:
         for line in lines:
             await conn.execute(
                 "INSERT INTO products (type, value) VALUES ('rent', $1)",
@@ -197,7 +204,8 @@ async def stock(msg: Message):
     if msg.from_user.id != ADMIN_ID:
         return
 
-    async with DB.pool.acquire() as conn:
+    pool = await get_conn()
+    async with pool.acquire() as conn:
         total = await conn.fetchval("SELECT COUNT(*) FROM products")
         available = await conn.fetchval("SELECT COUNT(*) FROM products WHERE is_sold=FALSE")
 
@@ -210,7 +218,9 @@ async def stock(msg: Message):
 async def confirm(call: CallbackQuery):
     oid = int(call.data.split(":")[1])
 
-    async with DB.pool.acquire() as conn:
+    pool = await get_conn()
+
+    async with pool.acquire() as conn:
         order = await conn.fetchrow("""
             UPDATE orders
             SET status='done', delivered=TRUE
@@ -235,32 +245,17 @@ async def confirm(call: CallbackQuery):
 async def reject(call: CallbackQuery):
     oid = int(call.data.split(":")[1])
 
-    async with DB.pool.acquire() as conn:
+    pool = await get_conn()
+    async with pool.acquire() as conn:
         await conn.execute("UPDATE orders SET status='cancel' WHERE id=$1", oid)
 
     await call.answer("Rejected")
 
 # =========================
-# FALLBACK (FINAL FIX)
-# =========================
-@dp.message(F.text)
-async def fallback(msg: Message):
-    await msg.answer("❌ Unknown command")
-# =========================
-
-# CATCH ALL (FIX LOG)
-# =========================
-@dp.message()
-async def catch_all(msg: Message):
-    pass
-    
-# =========================
 # MAIN
 # =========================
 async def main():
     await init_db()
-    asyncio.create_task(keep_db_alive())
-
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
