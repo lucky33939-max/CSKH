@@ -7,6 +7,7 @@ import os
 import logging
 import random
 from dotenv import load_dotenv
+from db import init_db, keep_db_alive
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton,
