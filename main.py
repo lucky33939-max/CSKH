@@ -181,6 +181,8 @@ async def admin_input(msg: Message):
     if not admin_state.get(msg.from_user.id):
         return
 
+    # xử lý add product
+
     lines = msg.text.split("\n")
 
     async with DB.pool.acquire() as conn:
