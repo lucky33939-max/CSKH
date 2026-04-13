@@ -1,5 +1,5 @@
 # =========================
-# FULL BOT (MULTI-LANGUAGE + PHONE SHOP)
+# FINAL FULL BOT (FIXED AI0GRAM V3 + MULTI LANG + PHONE SHOP)
 # =========================
 
 import asyncio
@@ -132,9 +132,9 @@ async def start(msg: Message):
 async def lang_menu(msg: Message):
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton("🇨🇳 中文", callback_data="lang:zh")],
-            [InlineKeyboardButton("🇻🇳 Tiếng Việt", callback_data="lang:vi")],
-            [InlineKeyboardButton("🇺🇸 English", callback_data="lang:en")],
+            [InlineKeyboardButton(text="🇨🇳 中文", callback_data="lang:zh")],
+            [InlineKeyboardButton(text="🇻🇳 Tiếng Việt", callback_data="lang:vi")],
+            [InlineKeyboardButton(text="🇺🇸 English", callback_data="lang:en")],
         ]
     )
     await msg.answer("🌐 Choose language:", reply_markup=kb)
@@ -158,15 +158,28 @@ async def set_lang(call: CallbackQuery):
 def phone_category_kb(lang):
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(t(lang, "vip"), callback_data="cat:vip")],
-            [InlineKeyboardButton(t(lang, "uk"), callback_data="cat:uk")],
-            [InlineKeyboardButton(t(lang, "normal"), callback_data="cat:normal")]
+            [InlineKeyboardButton(text=t(lang, "vip"), callback_data="cat:vip")],
+            [InlineKeyboardButton(text=t(lang, "uk"), callback_data="cat:uk")],
+            [InlineKeyboardButton(text=t(lang, "normal"), callback_data="cat:normal")]
         ]
     )
 
-VIP = ["+1 530-955-0999", "+1 971-403-2222"]
-UK = ["+44 7988 587333", "+44 7429 918444"]
-NORMAL = ["+1 239-402-5555", "+1 240-406-8999"]
+VIP = [
+    "+1 530-955-0999",
+    "+1 559-468-0999",
+    "+1 971-403-2222",
+    "+1 802-945-9666",
+]
+
+UK = [
+    "+44 7988 587333",
+    "+44 7429 918444",
+]
+
+NORMAL = [
+    "+1 239-402-5555",
+    "+1 240-406-8999",
+]
 
 # =========================
 # OPEN SHOP
@@ -192,7 +205,7 @@ async def category(call: CallbackQuery):
     price = 75 if cat == "vip" else 70 if cat == "uk" else 60
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(f"{n} — {price}U", callback_data=f"buy:{i}:{price}")]
+        [InlineKeyboardButton(text=f"{n} — {price}U", callback_data=f"buy:{i}:{price}")]
         for i, n in enumerate(data)
     ])
 
@@ -208,8 +221,8 @@ async def buy(call: CallbackQuery):
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton("🟢", callback_data="ok"),
-            InlineKeyboardButton("🔴", callback_data="no")
+            InlineKeyboardButton(text="🟢 Buy", callback_data="ok"),
+            InlineKeyboardButton(text="🔴 Cancel", callback_data="no")
         ]
     ])
 
